@@ -1649,19 +1649,66 @@ export function startApp(){
   // gemini-1.5-flash (abgeschaltet 29.09.2025) und gemini-2.0-flash (abgeschaltet 01.06.2026) gibt es nicht mehr.
   // Die App fragt Google, welche Modelle der Key nutzen darf, und probiert sie der Reihe nach (siehe geminiOrder).
   const geminiKey = () => String(S.firma.geminiApiKey||"").trim();
-  function geminiPrompt(){
-    const own=[S.firma.name, S.firma.ansprechpartner].filter(Boolean).join(", ");
-    return `Analysiere diesen Beleg/diese Rechnung und antworte AUSSCHLIESSLICH mit einem gültigen JSON-Objekt ohne Markdown-Codeblocks: {"haendler": "Name des Verkäufers/Shops", "datum": "DD.MM.YYYY", "rechnungsnr": "Rechnungsnummer", "brutto": 0.00, "mwst_prozent": 19, "notiz": "Kurzbeschreibung der gekauften Artikel", "kategorie": "Ersatzteile"}
-  Regeln:
-  - haendler: Firmenname des Verkäufers, meist ganz oben im Briefkopf. Nicht der Rechnungsempfänger${own?` (${own})`:""}. Bei Plattformen wie eBay, Amazon oder AliExpress den konkreten Verkäufer nehmen, falls genannt. Niemals USt-IdNr., Steuernummer, IBAN oder Adresse.
-  - datum: Rechnungs- bzw. Belegdatum (nicht Fälligkeits- oder Lieferdatum).
-  - rechnungsnr: Rechnungs- oder Belegnummer (nicht Kunden-, Bestell- oder Auftragsnummer).
-  - brutto: zu zahlender Gesamtbetrag inklusive MwSt. als Zahl mit Punkt, z. B. 20.89.
-  - mwst_prozent: 19, 7 oder 0.
-  - notiz: sehr kurze Zusammenfassung auf Deutsch, was gekauft wurde (max. 80 Zeichen, Stichworte mit Komma getrennt, Gerätemodelle kurz), z. B. "Display für S22, Lötflussmittel". Keine Preise, keine Mengenangaben außer wenn wichtig.
+  // System-Prompt für die Belegerkennung (Regeln). Das Ausgabeformat (JSON) bleibt unverändert.
+  function geminiSystem(){
+    const own=[S.firma.name, S.firma.ansprechpartner, S.firma.strasse && `${S.firma.strasse}, ${[S.firma.plz,S.firma.ort].filter(Boolean).join(" ")}`].filter(Boolean).join(" · ");
+    const known=[...new Set(S.ausgaben.map(a=>a.lieferant).filter(Boolean))].slice(0,40);
+    const heute=deDate(today());
+    return `Du bist ein präziser Buchhaltungs-Assistent für eine Handy-Reparaturwerkstatt in Deutschland. Du liest Eingangsrechnungen, Kassenbons und Quittungen aus – auch verknitterte, schief fotografierte oder schlecht belichtete.
+
+  AUSGABE (STRIKT)
+  - Antworte AUSSCHLIESSLICH mit dem puren JSON-Objekt – kein Markdown, keine Codeblöcke, kein Text davor oder danach.
+  - Format: {"haendler": "…", "datum": "DD.MM.YYYY", "rechnungsnr": "…", "brutto": 0.00, "mwst_prozent": 19, "notiz": "…", "kategorie": "…"}
+  - Grundsatz: Lieber leer als geraten. Ist ein Textfeld nicht sicher erkennbar, gib "" zurück. Ist "brutto" nicht sicher bestimmbar, gib null zurück.
+
+  1. BRUTTO = TATSÄCHLICH GEZAHLTER ENDBETRAG
+  - Suche gezielt nach: "Gesamtbetrag", "Gesamtsumme", "Endsumme", "Endbetrag", "Rechnungsbetrag", "Zu zahlen", "Zahlbetrag", "Summe EUR", "Total", "Paid", "Bar", "EC/Girocard/Kartenzahlung".
+  - Ignoriere: Zwischensummen, Netto-Beträge, MwSt.-Beträge, Einzelpreise, Rabattzeilen, Pfand, "Gegeben", "Rückgeld", "Wechselgeld", Trinkgeld-Vorschläge.
+  - Versandkosten, Rabatte und Skonti sind im Endbetrag bereits verrechnet – nichts doppelt abziehen oder addieren. Nimm stets die unterste, finale Endsumme.
+  - Bei Barzahlung ist "Bar 50,00 / Rückgeld 7,10" NICHT der Betrag – der Betrag ist die Summe davor.
+
+  2. ZAHLENFORMAT & OCR-FEHLER
+  - Deutsche Schreibweise beachten: "1.234,56" → 1234.56 ; "12,90" → 12.90. Im JSON immer Punkt als Dezimaltrenner, ohne Währungszeichen und ohne Tausenderpunkt.
+  - Buchstaben in Beträgen sind Lesefehler: O/o → 0, l/I/| → 1, S → 5, B → 8, Z → 2. Ein Betrag besteht nur aus Ziffern.
+
+  3. MATHEMATISCHE PLAUSIBILITÄT
+  - Prüfe immer: Brutto = Netto + MwSt.-Betrag (Rundung ±0,02 €) und MwSt.-Betrag ≈ Netto × Satz (19 % oder 7 %).
+  - Bei mehreren Steuersätzen: Brutto = Summe aller Netto-Beträge + Summe aller MwSt.-Beträge.
+  - Wenn die Positionen addiert werden können, müssen sie (inkl. Versand, abzgl. Rabatt) den Endbetrag ergeben.
+  - Ist eine Ziffer durch Knick, Schatten oder Unschärfe unleserlich, rekonstruiere sie mit diesen Formeln – aber NUR, wenn das Ergebnis eindeutig aufgeht. Geht die Rechnung nicht eindeutig auf, gib "brutto": null zurück.
+  - Widersprechen sich Endbetrag und Netto+MwSt., vertraue der Rechnung, die mit den meisten Beträgen auf dem Beleg übereinstimmt.
+
+  4. HÄNDLER = AUSSTELLER (NIE DER EMPFÄNGER)
+  - Der Händler ist IMMER das ausstellende Unternehmen bzw. der Shop – meist groß im Kopf/Logo ganz oben, oft wiederholt in der Fußzeile oder Absenderzeile über der Anschrift.
+  - Der Käufer/Empfänger ist NIEMALS der Händler. Der Empfänger ist diese Werkstatt bzw. ihr Inhaber: ${own||"(Firmendaten nicht hinterlegt)"}. Diese Namen und Adressen nie als Händler verwenden.
+  - Niemals als Händler: Zeilen mit USt-IdNr., Steuernummer, IBAN, BIC, Bank, Handelsregister, Geschäftsführer, Telefon, E-Mail, Web-Adresse, Straße/PLZ, oder Slogans.
+  - Bekannte Händler (MobileSentrix, Reichelt, Conrad, Mouser, DigiKey, Hornbach, Bauhaus, OBI, DHL, Deutsche Post, Hermes, DPD …): exakten Markennamen verwenden, ohne Rechtsform-Zusatz wenn der Markenname eindeutig ist.
+  - Marktplätze (eBay, Amazon, AliExpress, Kaufland, Otto, Etsy): Ist ein konkreter Verkäufer genannt ("Verkauft von", "Verkäufer", "Sold by", "Store", eigener Briefkopf des Händlers), nimm DIESEN Verkäufer. Nur wenn keiner genannt ist, den Plattformnamen (z. B. "Amazon").${known.length?`
+  - Bereits verwendete Händlernamen dieser Werkstatt (bei Übereinstimmung exakt diese Schreibweise nutzen): ${known.join(", ")}.`:""}
+
+  5. RECHNUNGSNUMMER
+  - Suche gezielt nach: "Rechnungsnummer", "Rechnungs-Nr.", "Rechnung Nr.", "RE-Nr.", "RE-…", "RG-…", "Beleg-Nr.", "Bon-Nr.", "Invoice No.", "Invoice #", "Inv #", "Receipt #".
+  - NICHT verwenden: Kunden-, Bestell-, Auftrags-, Artikel-, Liefer-, Sendungs-, Transaktions- oder Steuernummern.
+  - Gibt es keine Rechnungs- oder Belegnummer (z. B. einfacher Supermarkt- oder Tankbon ohne Nummer), gib "" zurück. Erfinde NIEMALS eine Nummer.
+
+  6. DATUM
+  - Wähle STRIKT das Rechnungs- bzw. Belegdatum ("Rechnungsdatum", "Belegdatum", "Datum" im Rechnungskopf, Datum auf dem Kassenbon).
+  - Nicht verwenden: Bestelldatum, Liefer-/Versanddatum, voraussichtliches Lieferdatum, Fälligkeits-/Zahlungsziel, Leistungszeitraum-Ende, Geburtsdatum, Ablauf-/MHD-Datum, Ausstellungsdatum von Zertifikaten.
+  - Gibt es nur ein Erstellungs- oder Druckdatum, nimm dieses.
+  - Heute ist der ${heute}. Das Datum darf NIE in der Zukunft liegen. Zweistellige Jahre (z. B. 26) bedeuten 20xx.
+  - Format DD.MM.YYYY. Unsicher → "".
+
+  7. MWST, NOTIZ, KATEGORIE
+  - mwst_prozent: 19, 7 oder 0 (0 bei Kleinunternehmer-Hinweis § 19 UStG, Privatverkauf, Porto/Briefmarken ohne MwSt.). Bei gemischten Sätzen den Satz mit dem größeren Anteil.
+  - notiz: sehr kurze Zusammenfassung auf Deutsch, was gekauft wurde (max. 80 Zeichen, Stichworte mit Komma, Gerätemodelle kurz), z. B. "Display für S22, Lötflussmittel". Keine Preise. Unklar → "".
   - kategorie: genau einer dieser Werte: ${AKAT.map(k=>`"${k}"`).join(", ")}. Handy-/Tablet-Ersatzteile, Akkus, Displays, Gehäuse = "Ersatzteile"; Schraubendreher, Lötstation, Messgeräte = "Werkzeug"; Versand, Porto, Paket = "Porto/Versand"; Lötzinn, Flussmittel, Kleber, Reinigung, Schutzfolien = "Verbrauchsmaterial"; Papier, Drucker, Software, Abos = "Büro & Software".
-  - Unbekannte Werte: null.`;
+
+  Prüfe vor der Antwort still: Ist "brutto" wirklich der Endbetrag und mathematisch plausibel? Ist "haendler" der Aussteller und nicht der Empfänger? Ist "rechnungsnr" wirklich eine Rechnungs-/Belegnummer? Liegt "datum" nicht in der Zukunft?`;
   }
+  function geminiPrompt(){
+    return `Analysiere diesen Beleg/diese Rechnung nach den Regeln und antworte AUSSCHLIESSLICH mit dem gültigen JSON-Objekt ohne Markdown-Codeblocks: {"haendler": "Name des Verkäufers/Shops", "datum": "DD.MM.YYYY", "rechnungsnr": "Rechnungsnummer", "brutto": 0.00, "mwst_prozent": 19, "notiz": "Kurzbeschreibung der gekauften Artikel", "kategorie": "Ersatzteile"}`;
+  }
+
   async function geminiImageData(beleg){
     if(beleg.typ==="application/pdf") return { mime_type:"application/pdf", data:beleg.data.split(",")[1] };
     const src=OCR_SRC.get(beleg);
@@ -1738,18 +1785,20 @@ export function startApp(){
     const out=[]; for(const m of order) if(m && !out.includes(m) && (m===wanted || has(m))) out.push(m);
     return out.slice(0,5);
   }
-  function gemBody(parts, json, model, thinking){
-    const body={ contents:[{role:"user", parts}], generationConfig:{ temperature:0 } };
+  function gemBody(parts, json, model, thinking, system, sysField){
+    const body={ contents:[{role:"user", parts: system && !sysField ? [{text:system}, ...parts] : parts}], generationConfig:{ temperature:0 } };
+    if(system && sysField) body.systemInstruction={ parts:[{text:system}] };
     if(json) Object.assign(body.generationConfig, { responseMimeType:"application/json", responseSchema:{ type:"OBJECT", properties:{
       haendler:{type:"STRING", nullable:true}, datum:{type:"STRING", nullable:true}, rechnungsnr:{type:"STRING", nullable:true},
       brutto:{type:"NUMBER", nullable:true}, mwst_prozent:{type:"NUMBER", nullable:true},
       notiz:{type:"STRING", nullable:true}, kategorie:{type:"STRING", nullable:true, enum:AKAT} } } });
     // Schneller antworten: Denkphase klein halten (wird bei Ablehnung automatisch weggelassen)
-    if(thinking){ if(/2\.5-flash/.test(model)) body.generationConfig.thinkingConfig={thinkingBudget:0};
+    // Belege: etwas Denkzeit für die Plausibilitäts-Rechnung; Verbindungstest: so schnell wie möglich
+    if(thinking){ if(/2\.5-flash/.test(model)) body.generationConfig.thinkingConfig={thinkingBudget: system ? 1024 : 0};
       else if(/latest|gemini-[3-9]/.test(model)) body.generationConfig.thinkingConfig={thinkingLevel:"low"}; }
     return body;
   }
-  async function geminiCall(parts, {json=true, timeout=40000, key=geminiKey(), models=null, total=95000, onModel=null}={}){
+  async function geminiCall(parts, {json=true, timeout=45000, key=geminiKey(), models=null, total=100000, onModel=null, system=""}={}){
     if(!key) throw new GeminiError("nokey","Kein API-Key");
     if(!models){
       let avail=[];
@@ -1764,11 +1813,12 @@ export function startApp(){
       onModel?.(model, n);
       const t0=Date.now(), url=`${GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
       try{
-        let thinking=true, res;
+        let thinking=true, sysField=true, res;
         for(;;){
-          res=await gemFetch(url, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(gemBody(parts, json, model, thinking)) }, ms);
+          res=await gemFetch(url, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(gemBody(parts, json, model, thinking, system, sysField)) }, ms);
           if(res.ok) break;
           const e=gemErr(res.status, await res.json().catch(()=>({})));
+          if(system && sysField && res.status===400 && /system_?instruction|systemInstruction|developer instruction/i.test(e.message)){ sysField=false; continue; }
           if(e.code==="thinking" && thinking){ thinking=false; continue; }
           if(res.status===400 && thinking && /thinking|Unknown name|Invalid JSON payload/i.test(e.message)){ thinking=false; continue; }
           throw e;
@@ -1794,7 +1844,7 @@ export function startApp(){
     let t=String(text||"").replace(/^```(?:json)?\s*/i,"").replace(/```\s*$/,"").trim();
     const a=t.indexOf("{"), b=t.lastIndexOf("}"); if(a<0||b<a) throw new GeminiError("parse","kein JSON");
     let o; try{ o=JSON.parse(t.slice(a,b+1)); }catch(e){ throw new GeminiError("parse", e.message); }
-    const str=v=> (v==null || /^(null|unbekannt|n\/a|-)$/i.test(String(v).trim())) ? "" : String(v).trim();
+    const str=v=> (v==null || /^(null|unbekannt|unknown|keine?|none|n\/?a|n\.a\.|-+|–|\?+)$/i.test(String(v).trim())) ? "" : String(v).trim();
     // Datum: DD.MM.YYYY, D.M.YY oder YYYY-MM-DD
     let iso=null; const ds=str(o.datum); let m;
     if((m=ds.match(/^(\d{1,2})\.\s?(\d{1,2})\.\s?(\d{2,4})$/))){ let y=+m[3]; if(y<100) y+=2000; iso=`${y}-${pad(+m[2])}-${pad(+m[1])}`; }
@@ -1818,7 +1868,7 @@ export function startApp(){
     return AKAT.find(k=>l.includes(k.toLowerCase().split(/[ /&]/)[0])) || null; }
   async function geminiBeleg(beleg, onModel){
     if(beleg.typ==="application/pdf" && beleg.data.length > 19*1024*1024) throw new GeminiError("big","PDF zu groß");
-    const r=await geminiCall([{text:geminiPrompt()}, {inline_data:await geminiImageData(beleg)}], {onModel});
+    const r=await geminiCall([{text:geminiPrompt()}, {inline_data:await geminiImageData(beleg)}], {onModel, system:geminiSystem()});
     return { ...geminiParse(r.text), model:r.model, ms:r.ms, tried:r.tried, raw:r.text };
   }
   // Verbindungstest Schritt für Schritt: Internet → Key & Modellliste → Antwort eines Modells
