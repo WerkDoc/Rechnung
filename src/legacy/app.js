@@ -1292,9 +1292,10 @@ export function startApp(){
         <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 0001.</p></div>
       <div class="group" id="grpKi"><span class="glabel">KI-Belegerkennung (Google Gemini)</span><div class="box">
         <div class="field"><label for="cGemini">Gemini API-Key</label><input id="cGemini" type="password" class="mono" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="AIza…" value="${esc(f.geminiApiKey||"")}"><button type="button" class="eyebtn" id="cGemEye" aria-label="Key anzeigen">${ico.eye}</button></div>
-        <div class="field"><label for="cGemModel">Modell</label><input id="cGemModel" class="mono" autocapitalize="off" spellcheck="false" placeholder="gemini-flash-latest" value="${esc(f.geminiModel||"")}"></div>
-        <div class="field gemtest"><button type="button" class="btn ghost sm" id="cGemTest">Verbindung testen</button><span id="cGemRes"></span></div></div>
-        <p class="help">Mit Key liest die KI beim Erfassen einer Ausgabe Händler, Datum, Rechnungs-Nr., Betrag und MwSt. aus. Dazu wird das Foto bzw. die PDF an Google gesendet – im kostenlosen Tarif darf Google die Inhalte zur Verbesserung seiner Dienste verwenden. Ohne Key oder bei einem Fehler nutzt die App automatisch die lokale Texterkennung. Den Key erstellen Sie in Google AI Studio; er wird nicht ins Backup geschrieben. Modell leer lassen = immer das aktuelle Flash-Modell.</p></div>
+        <div class="field"><label for="cGemModel">Modell</label><input id="cGemModel" class="mono" list="gemModels" autocapitalize="off" spellcheck="false" placeholder="automatisch" value="${esc(f.geminiModel||"")}"><datalist id="gemModels"></datalist></div>
+        <div class="field gemtest"><button type="button" class="btn ghost sm" id="cGemTest">Verbindung testen</button><span id="cGemRes"></span></div>
+        <div class="gemsteps" id="cGemSteps" hidden></div></div>
+        <p class="help">Mit Key liest die KI beim Erfassen einer Ausgabe Händler, Datum, Rechnungs-Nr., Betrag und MwSt. aus. Dazu wird das Foto bzw. die PDF an Google gesendet – im kostenlosen Tarif darf Google die Inhalte zur Verbesserung seiner Dienste verwenden. Ohne Key oder bei einem Fehler nutzt die App automatisch die lokale Texterkennung. Den Key erstellen Sie in Google AI Studio; er wird nicht ins Backup geschrieben. Modell leer lassen = automatisch: Die App fragt Google, welche Modelle Ihr Key nutzen darf, und weicht bei Überlastung, Limit oder Zeitüberschreitung selbst auf das nächste aus.</p></div>
       <div class="group"><span class="glabel">Standards</span><div class="box">
         <div class="field"><label for="cZiel">Zahlungsziel (Tage)</label><input id="cZiel" inputmode="numeric" value="${f.ziel??14}"></div>
         <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div></div></div>`, () => {
@@ -1305,9 +1306,13 @@ export function startApp(){
     ["cPreJob","cPreRe","cPreAn","cPreKv"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
     $("#cLogo").onchange=e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>prepareLogo(rd.result, out=>{ logo=out; $("#lPrev img").src=logo; $("#lInfo").textContent="Neues Logo – zum Übernehmen „Speichern“ tippen"; }); rd.readAsDataURL(file); };
     $("#cGemEye").onclick=()=>{ const i=$("#cGemini"); i.type = i.type==="password" ? "text" : "password"; };
-    $("#cGemTest").onclick=async()=>{ const out=$("#cGemRes"), key=val("cGemini"); if(!key){ out.className="bad"; out.textContent="Bitte zuerst einen Key eintragen"; return; }
-      out.className=""; out.textContent="Teste …"; const t=await geminiTest(key, val("cGemModel")); if(!$("#cGemRes")) return;
-      out.className=t.ok?"good":"bad"; out.textContent = t.ok ? `✓ Verbunden (${t.model})` : `✕ ${GEMINI_MSG[t.code]||t.msg}`; };
+    $("#cGemTest").onclick=async()=>{ const out=$("#cGemRes"), box=$("#cGemSteps"), btn=$("#cGemTest"), key=val("cGemini");
+      if(!key){ out.className="bad"; out.textContent="Bitte zuerst einen Key eintragen"; return; }
+      btn.disabled=true; out.className=""; out.innerHTML=`<span class="ocrspin" style="display:inline-block;vertical-align:-4px;width:16px;height:16px"></span> Teste …`;
+      const draw=steps=>{ if(!$("#cGemSteps")) return; box.hidden=false; box.innerHTML=steps.map(x=>`<div class="${x.ok?"ok":"bad"}"><i>${x.ok?"✓":"✕"}</i><span><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span></div>`).join(""); };
+      const t=await geminiDiagnose(key, val("cGemModel"), draw); if(!$("#cGemRes")) return; btn.disabled=false;
+      out.className=t.ok?"good":"bad"; out.textContent = t.ok ? `✓ Funktioniert (${t.model})` : "✕ Fehlgeschlagen – Details unten";
+      if(t.models?.length) $("#gemModels").innerHTML=t.models.map(m=>`<option value="${esc(m)}">`).join(""); };
     const ld=$("#cLogoDel"); if(ld) ld.onclick=()=>{ logo=""; $("#lPrev img").src=BRAND_LOGO; $("#lInfo").textContent="Standard: RepairMobile-Logo"; ld.remove(); };
   }
 
@@ -1641,10 +1646,9 @@ export function startApp(){
   function ocrExtract(text, known=[], own=[]){ return { betrag:ocrAmount(text), datum:ocrDate(text), satz:ocrSatz(text), lieferant:ocrShop(text, known, own), nr:ocrInvoiceNr(text) }; }
 
   /* ---------- KI-Belegerkennung: Google Gemini (Vision) ---------- */
-  // gemini-1.5-flash wurde am 29.09.2025 abgeschaltet – „gemini-flash-latest“ zeigt immer auf das aktuelle Flash-Modell
-  const GEMINI_DEFAULT = ["gemini-flash-latest", "gemini-2.5-flash"];
+  // gemini-1.5-flash (abgeschaltet 29.09.2025) und gemini-2.0-flash (abgeschaltet 01.06.2026) gibt es nicht mehr.
+  // Die App fragt Google, welche Modelle der Key nutzen darf, und probiert sie der Reihe nach (siehe geminiOrder).
   const geminiKey = () => String(S.firma.geminiApiKey||"").trim();
-  const geminiModels = () => { const m=String(S.firma.geminiModel||"").trim(); return m ? [m, ...GEMINI_DEFAULT.filter(x=>x!==m)] : GEMINI_DEFAULT; };
   function geminiPrompt(){
     const own=[S.firma.name, S.firma.ansprechpartner].filter(Boolean).join(", ");
     return `Analysiere diesen Beleg/diese Rechnung und antworte AUSSCHLIESSLICH mit einem gültigen JSON-Objekt ohne Markdown-Codeblocks: {"haendler": "Name des Verkäufers/Shops", "datum": "DD.MM.YYYY", "rechnungsnr": "Rechnungsnummer", "brutto": 0.00, "mwst_prozent": 19, "notiz": "Kurzbeschreibung der gekauften Artikel", "kategorie": "Ersatzteile"}
@@ -1671,34 +1675,120 @@ export function startApp(){
     return { mime_type:"image/jpeg", data:beleg.data.split(",")[1] };
   }
   class GeminiError extends Error{ constructor(code, msg){ super(msg); this.code=code; } }
-  const GEMINI_MSG = { key:"API-Key ungültig oder ohne Berechtigung", quota:"Kontingent erschöpft – bitte später erneut", net:"Keine Verbindung zu Google", timeout:"Zeitüberschreitung", model:"Modell nicht verfügbar", parse:"Antwort nicht lesbar", big:"Datei zu groß für die KI", fail:"Unbekannter Fehler" };
-  async function geminiCall(parts, {json=true, timeout=45000, key=geminiKey(), models=geminiModels()}={}){
-    if(!key) throw new GeminiError("nokey","Kein API-Key");
+  const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta";
+  const GEMINI_MSG = {
+    offline:"Keine Internetverbindung – das Gerät ist offline",
+    net:"Netzwerkfehler – Google ist nicht erreichbar (Verbindung, VPN, Werbeblocker oder iCloud Privat-Relay prüfen)",
+    key:"Ungültiger API-Key – bitte in Google AI Studio prüfen und neu einfügen",
+    disabled:"Die Gemini API ist für dieses Google-Projekt nicht aktiviert",
+    region:"Gemini ist für dieses Konto bzw. diese Region nicht freigeschaltet",
+    quota:"Kontingent erschöpft (kostenloses Limit pro Minute/Tag) – später nochmal versuchen",
+    busy:"Google-Server gerade überlastet – bitte gleich nochmal versuchen",
+    timeout:"Zeitüberschreitung – Google hat nicht rechtzeitig geantwortet",
+    model:"Modell nicht verfügbar",
+    big:"Datei zu groß für die KI",
+    parse:"Antwort der KI nicht lesbar",
+    nokey:"Kein API-Key hinterlegt",
+    fail:"Unbekannter Fehler"
+  };
+  const gemMsg = e => GEMINI_MSG[e?.code] || e?.message || GEMINI_MSG.fail;
+  const GEM_GLOBAL = ["key","disabled","region","offline","big","nokey"];   // betrifft alle Modelle → nicht weiter probieren
+  function gemErr(status, err){
+    const msg=err?.error?.message||"", st=err?.error?.status||"", reason=JSON.stringify(err?.error?.details||"");
+    const all=msg+" "+st+" "+reason;
+    if(/API_KEY_INVALID|API key not valid|API key expired|API_KEY_/i.test(all)) return new GeminiError("key", msg);
+    if(/SERVICE_DISABLED|has not been used in project|is disabled/i.test(all)) return new GeminiError("disabled", msg);
+    if(/location is not supported|not available in your country|FAILED_PRECONDITION/i.test(all)) return new GeminiError("region", msg);
+    if(status===401 || status===403 || st==="PERMISSION_DENIED" || st==="UNAUTHENTICATED") return new GeminiError("key", msg);
+    if(status===429 || st==="RESOURCE_EXHAUSTED") return new GeminiError("quota", msg);
+    if(status===404 || st==="NOT_FOUND" || /is not found|not supported for generateContent/i.test(msg)) return new GeminiError("model", msg);
+    if(status===400 && /thinking/i.test(msg)) return new GeminiError("thinking", msg);
+    if(status===413 || /too large|exceeds the maximum|payload size/i.test(msg)) return new GeminiError("big", msg);
+    if(status>=500 || st==="UNAVAILABLE" || st==="INTERNAL" || st==="DEADLINE_EXCEEDED") return new GeminiError("busy", `HTTP ${status} ${msg}`.trim());
+    return new GeminiError("fail", `HTTP ${status}${msg?": "+msg:""}`);
+  }
+  async function gemFetch(url, opts, ms){
+    if(navigator.onLine===false) throw new GeminiError("offline","offline");
+    const ctl=new AbortController(), t=setTimeout(()=>ctl.abort(), ms);
+    try{ return await fetch(url, {...opts, signal:ctl.signal, cache:"no-store"}); }
+    catch(e){ if(e.name==="AbortError") throw new GeminiError("timeout", `keine Antwort nach ${Math.round(ms/1000)} s`);
+      throw new GeminiError(navigator.onLine===false?"offline":"net", e.message||"Load failed"); }
+    finally{ clearTimeout(t); }
+  }
+  // Welche Modelle darf dieser Key nutzen? (einmal pro halbe Stunde abfragen)
+  let GEM_LIST=null;
+  async function geminiListModels(key, ms=12000){
+    if(GEM_LIST && GEM_LIST.key===key && Date.now()-GEM_LIST.at<30*60e3) return GEM_LIST.models;
+    const res=await gemFetch(`${GEMINI_BASE}/models?pageSize=1000&key=${encodeURIComponent(key)}`, {}, ms);
+    if(!res.ok) throw gemErr(res.status, await res.json().catch(()=>({})));
+    const data=await res.json().catch(()=>({}));
+    const models=(data.models||[]).filter(m=>(m.supportedGenerationMethods||[]).includes("generateContent")).map(m=>String(m.name).replace(/^models\//,""));
+    GEM_LIST={key, at:Date.now(), models}; return models;
+  }
+  const gemVer = n => { const m=String(n).match(/gemini-(\d+(?:\.\d+)?)/); return m?+m[1]:0; };
+  const gemUsable = n => /flash/i.test(n) && !/(image|tts|audio|live|embedding|exp|thinking|computer|robotics|native|learnlm)/i.test(n);
+  function gemGood(){ try{ return localStorage.getItem("rm-gem-good")||""; }catch(e){ return ""; } }
+  function setGemGood(m){ try{ localStorage.setItem("rm-gem-good", m); }catch(e){} }
+  // Reihenfolge: eigenes Modell → zuletzt erfolgreiches → „latest“-Alias → neueste stabile Flash-Modelle → Flash-Lite
+  function geminiOrder(avail, wanted=String(S.firma.geminiModel||"").trim()){
+    const has = n => !avail.length || avail.includes(n);
+    const stable=avail.filter(n=>gemUsable(n) && !/preview|lite|-\d{3}$/i.test(n) && !/latest/.test(n)).sort((a,b)=>gemVer(b)-gemVer(a));
+    const lite=avail.filter(n=>gemUsable(n) && /lite/i.test(n) && !/preview|-\d{3}$/i.test(n) && !/latest/.test(n)).sort((a,b)=>gemVer(b)-gemVer(a));
+    const order=[wanted, gemGood(), "gemini-flash-latest", ...stable.slice(0,2), "gemini-2.5-flash", "gemini-flash-lite-latest", ...lite.slice(0,1)];
+    const out=[]; for(const m of order) if(m && !out.includes(m) && (m===wanted || has(m))) out.push(m);
+    return out.slice(0,5);
+  }
+  function gemBody(parts, json, model, thinking){
     const body={ contents:[{role:"user", parts}], generationConfig:{ temperature:0 } };
     if(json) Object.assign(body.generationConfig, { responseMimeType:"application/json", responseSchema:{ type:"OBJECT", properties:{
       haendler:{type:"STRING", nullable:true}, datum:{type:"STRING", nullable:true}, rechnungsnr:{type:"STRING", nullable:true},
       brutto:{type:"NUMBER", nullable:true}, mwst_prozent:{type:"NUMBER", nullable:true},
       notiz:{type:"STRING", nullable:true}, kategorie:{type:"STRING", nullable:true, enum:AKAT} } } });
-    let last=null;
-    for(const model of models){
-      const ctl=new AbortController(), t=setTimeout(()=>ctl.abort(), timeout);
-      let res;
-      try{ res=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
-        { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body), signal:ctl.signal }); }
-      catch(e){ clearTimeout(t); throw new GeminiError(e.name==="AbortError"?"timeout":"net", e.message); }
-      clearTimeout(t);
-      if(res.ok){ const data=await res.json().catch(()=>null);
-        const text=(data?.candidates?.[0]?.content?.parts||[]).map(p=>p.text||"").join("").trim();
-        if(!text) throw new GeminiError("parse", data?.promptFeedback?.blockReason || "leere Antwort");
-        return {text, model}; }
-      const err=await res.json().catch(()=>({})); const msg=err?.error?.message||res.statusText;
-      if(res.status===404 || /not found|not supported|is not available/i.test(msg)){ last=new GeminiError("model", msg); continue; }
-      if(res.status===400 && /api key|api_key/i.test(msg) || res.status===401 || res.status===403) throw new GeminiError("key", msg);
-      if(res.status===429) throw new GeminiError("quota", msg);
-      if(res.status===413 || /too large|exceeds/i.test(msg)) throw new GeminiError("big", msg);
-      throw new GeminiError("fail", `${res.status}: ${msg}`);
+    // Schneller antworten: Denkphase klein halten (wird bei Ablehnung automatisch weggelassen)
+    if(thinking){ if(/2\.5-flash/.test(model)) body.generationConfig.thinkingConfig={thinkingBudget:0};
+      else if(/latest|gemini-[3-9]/.test(model)) body.generationConfig.thinkingConfig={thinkingLevel:"low"}; }
+    return body;
+  }
+  async function geminiCall(parts, {json=true, timeout=40000, key=geminiKey(), models=null, total=95000, onModel=null}={}){
+    if(!key) throw new GeminiError("nokey","Kein API-Key");
+    if(!models){
+      let avail=[];
+      try{ avail=await geminiListModels(key); }
+      catch(e){ if(GEM_GLOBAL.includes(e.code)) throw e; }   // Liste nicht abrufbar (z. B. kurz Netz weg) → mit Standardliste weiter
+      models=geminiOrder(avail);
     }
-    throw last || new GeminiError("model","Kein Modell erreichbar");
+    const tried=[], start=Date.now();
+    for(const [n, model] of models.entries()){
+      const left=total-(Date.now()-start); if(left<5000) break;
+      const ms=Math.min(n===0?timeout:Math.min(timeout,30000), left);
+      onModel?.(model, n);
+      const t0=Date.now(), url=`${GEMINI_BASE}/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`;
+      try{
+        let thinking=true, res;
+        for(;;){
+          res=await gemFetch(url, { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(gemBody(parts, json, model, thinking)) }, ms);
+          if(res.ok) break;
+          const e=gemErr(res.status, await res.json().catch(()=>({})));
+          if(e.code==="thinking" && thinking){ thinking=false; continue; }
+          if(res.status===400 && thinking && /thinking|Unknown name|Invalid JSON payload/i.test(e.message)){ thinking=false; continue; }
+          throw e;
+        }
+        const data=await res.json().catch(()=>null);
+        const text=(data?.candidates?.[0]?.content?.parts||[]).filter(p=>!p.thought).map(p=>p.text||"").join("").trim();
+        if(!text) throw new GeminiError("parse", data?.promptFeedback?.blockReason || data?.candidates?.[0]?.finishReason || "leere Antwort");
+        setGemGood(model);
+        return {text, model, ms:Date.now()-t0, tried};
+      }catch(e){
+        if(!(e instanceof GeminiError)) e=new GeminiError("fail", e.message);
+        tried.push({model, code:e.code, msg:e.message, ms:Date.now()-t0});
+        if(GEM_GLOBAL.includes(e.code)) { e.tried=tried; throw e; }
+        if(gemGood()===model) setGemGood("");
+      }
+    }
+    const last=tried[tried.length-1]||{code:"model", msg:"Kein Modell erreichbar"};
+    // Wenn alle Modelle am selben Problem scheitern, genau das melden
+    const codes=[...new Set(tried.map(t=>t.code))];
+    const e=new GeminiError(codes.length===1?codes[0]:last.code, last.msg); e.tried=tried; throw e;
   }
   function geminiParse(text){
     let t=String(text||"").replace(/^```(?:json)?\s*/i,"").replace(/```\s*$/,"").trim();
@@ -1726,15 +1816,29 @@ export function startApp(){
     const exact=AKAT.find(k=>k.toLowerCase()===l); if(exact) return exact;
     for(const [w,k] of Object.entries(KAT_SYN)) if(l.includes(w)) return k;
     return AKAT.find(k=>l.includes(k.toLowerCase().split(/[ /&]/)[0])) || null; }
-  async function geminiBeleg(beleg){
+  async function geminiBeleg(beleg, onModel){
     if(beleg.typ==="application/pdf" && beleg.data.length > 19*1024*1024) throw new GeminiError("big","PDF zu groß");
-    const r=await geminiCall([{text:geminiPrompt()}, {inline_data:await geminiImageData(beleg)}]);
-    return { ...geminiParse(r.text), model:r.model, raw:r.text };
+    const r=await geminiCall([{text:geminiPrompt()}, {inline_data:await geminiImageData(beleg)}], {onModel});
+    return { ...geminiParse(r.text), model:r.model, ms:r.ms, tried:r.tried, raw:r.text };
   }
-  async function geminiTest(key, model){
-    const models = model ? [model, ...GEMINI_DEFAULT.filter(x=>x!==model)] : GEMINI_DEFAULT;
-    try{ const r=await geminiCall([{text:"Antworte nur mit dem Wort OK."}], {json:false, timeout:20000, key:String(key||"").trim(), models}); return {ok:true, model:r.model}; }
-    catch(e){ return {ok:false, code:e.code, msg:e.message}; }
+  // Verbindungstest Schritt für Schritt: Internet → Key & Modellliste → Antwort eines Modells
+  async function geminiDiagnose(key, model, step){
+    key=String(key||"").trim(); model=String(model||"").trim();
+    const out={ok:false, steps:[]}; const add=(ok,t,d="")=>{ out.steps.push({ok,t,d}); step?.(out.steps); };
+    if(!key){ add(false,"API-Key", GEMINI_MSG.nokey); return out; }
+    if(navigator.onLine===false){ add(false,"Internet", GEMINI_MSG.offline); return out; }
+    add(true,"Internet","verbunden");
+    let avail=[]; const t0=Date.now();
+    try{ GEM_LIST=null; avail=await geminiListModels(key, 15000); add(true,"Google & API-Key", `gültig · ${avail.filter(gemUsable).length} Flash-Modelle · ${((Date.now()-t0)/1000).toFixed(1).replace(".",",")} s`); }
+    catch(e){ add(false,"Google & API-Key", gemMsg(e)+(e.message&&!GEMINI_MSG[e.message]?` (${e.message.slice(0,90)})`:"")); return out; }
+    out.models=avail.filter(gemUsable);
+    if(model && !avail.includes(model)) add(false,"Eingetragenes Modell", `„${model}“ gibt es für diesen Key nicht – wird übersprungen`);
+    const order=geminiOrder(avail, model && avail.includes(model) ? model : "");
+    try{ const r=await geminiCall([{text:"Antworte nur mit dem Wort OK."}], {json:false, timeout:25000, total:60000, key, models:order});
+      for(const t of r.tried) add(false, t.model, gemMsg(t));
+      add(true, r.model, `antwortet · ${(r.ms/1000).toFixed(1).replace(".",",")} s`); out.ok=true; out.model=r.model; }
+    catch(e){ for(const t of (e.tried||[])) add(false, t.model, gemMsg(t)); if(!(e.tried||[]).length) add(false,"Modell", gemMsg(e)); }
+    return out;
   }
 
   /* ---------- Ausgaben & Beleg-Scan (Eingangsrechnungen) ---------- */
@@ -1879,12 +1983,14 @@ export function startApp(){
     const runOcr=async (b, opts={})=>{
       if(!b){ ocrTok++; ocrBar(""); return; }
       const tok=++ocrTok, live=()=>tok===ocrTok && !!$("#aOcr");
-      let r=null, quelle="lokal", kiHinweis="";
+      let r=null, quelle="lokal", kiHinweis="", kiInfo="";
       if(geminiKey() && !opts.lokal){
-        ocrBar(`<div class="ocrrow run ki"><span class="ocrspin" aria-hidden="true"></span><span><b>KI liest den Beleg … <i class="kibadge">KI</i></b><small>Google Gemini sucht Händler, Datum, Rechnungs-Nr., Betrag und MwSt.</small></span></div><div class="ocrprog indet"><i></i></div><small class="ocrnote">Sie können währenddessen schon tippen.</small>`);
-        try{ const g=await geminiBeleg(b); if(!live()) return;
-          if(g.betrag||g.datum||g.lieferant||g.nr){ r=g; quelle="ki"; ocrText=g.raw; } else kiHinweis="Die KI hat auf dem Beleg nichts Eindeutiges gefunden"; }
-        catch(e){ if(!live()) return; if(e.code!=="nokey") kiHinweis="KI nicht verfügbar: "+(GEMINI_MSG[e.code]||e.message); }
+        ocrBar(`<div class="ocrrow run ki"><span class="ocrspin" aria-hidden="true"></span><span><b>KI liest den Beleg … <i class="kibadge">KI</i></b><small>Google Gemini sucht Händler, Datum, Rechnungs-Nr., Betrag und MwSt.</small></span></div><div class="ocrprog indet"><i></i></div><small class="ocrnote" id="aKiModel">Verbindung zu Google …</small>`);
+        const onModel=(m,n)=>{ const el=$("#aKiModel"); if(el && live()) el.textContent = n ? `Ausweichmodell ${m} wird versucht …` : `Modell ${m} · Sie können währenddessen schon tippen.`; };
+        try{ const g=await geminiBeleg(b, onModel); if(!live()) return;
+          if(g.betrag||g.datum||g.lieferant||g.nr){ r=g; quelle="ki"; ocrText=g.raw; kiInfo=`${g.model} · ${(g.ms/1000).toFixed(1).replace(".",",")} s${g.tried?.length?` (nach ${g.tried.map(t=>t.model+": "+(GEMINI_MSG[t.code]?.split(" – ")[0]||t.code)).join(", ")})`:""}`; }
+          else kiHinweis="Die KI hat auf dem Beleg nichts Eindeutiges gefunden"; }
+        catch(e){ if(!live()) return; if(e.code!=="nokey") kiHinweis="KI nicht verfügbar: "+gemMsg(e)+((e.tried||[]).length>1?` (versucht: ${e.tried.map(t=>t.model).join(", ")})`:""); }
       }
       const kiNote = kiHinweis ? `<small class="ocrnote kiwarn">${esc(kiHinweis)} – lokale Texterkennung verwendet.</small>` : "";
       if(!r){
@@ -1909,7 +2015,7 @@ export function startApp(){
       const fehlt=[!r.betrag&&"Betrag", !r.datum&&"Datum"].filter(Boolean);
       const ok=got.length>0, ki=quelle==="ki";
       const title = ok ? (ki?`Von der KI erkannt <i class="kibadge">KI</i>`:"Automatisch erkannt") : "Nichts Eindeutiges erkannt";
-      ocrBar(`<div class="ocrrow ${ok?(check||fehlt.length?"warn":"ok"):"err"}${ki?" ki":""}">${ok?ico.check:ico.scan}<span><b>${title}</b><small>${ok?got.join(" · "):"Der Text war zu undeutlich."}${fehlt.length&&ok?` – ${fehlt.join(" und ")} bitte selbst eintragen`:""}${check?" – <u>gelb markierte</u> Werte bitte prüfen":""}${!ok?" Bitte von Hand eintragen.":""}</small></span><button type="button" class="btn ghost sm" id="aOcrGo">Neu lesen</button></div>${kiNote}${ki?`<small class="ocrnote">Bitte kurz gegenprüfen – auch KI kann sich verlesen.</small>`:""}${txtBtn(ki)}`);
+      ocrBar(`<div class="ocrrow ${ok?(check||fehlt.length?"warn":"ok"):"err"}${ki?" ki":""}">${ok?ico.check:ico.scan}<span><b>${title}</b><small>${ok?got.join(" · "):"Der Text war zu undeutlich."}${fehlt.length&&ok?` – ${fehlt.join(" und ")} bitte selbst eintragen`:""}${check?" – <u>gelb markierte</u> Werte bitte prüfen":""}${!ok?" Bitte von Hand eintragen.":""}</small></span><button type="button" class="btn ghost sm" id="aOcrGo">Neu lesen</button></div>${kiNote}${ki?`<small class="ocrnote">${esc(kiInfo)} · Bitte kurz gegenprüfen – auch KI kann sich verlesen.</small>`:""}${txtBtn(ki)}`);
       bindBar(b);
     };
     const bindPrev=()=>{
