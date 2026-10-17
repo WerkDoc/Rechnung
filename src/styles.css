@@ -310,9 +310,22 @@ textarea.input{resize:vertical;line-height:1.45}
 .bfbar{display:flex;align-items:center;gap:8px;padding:12px 16px;color:#fff}
 .bfbar b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bfbar .btn svg{width:16px;height:16px}
-.bfimg{flex:1;overflow:auto;display:flex;align-items:center;justify-content:center;padding:0 8px 16px}
-.bfimg img{max-width:100%;max-height:100%;object-fit:contain;touch-action:pinch-zoom}
-.bfull iframe{flex:1;border:0;background:#fff;width:100%}
+.bfimg{flex:1;overflow:auto;-webkit-overflow-scrolling:touch;padding:0 8px 16px;min-height:0}
+.bfpages{width:100%;margin:0 auto;display:flex;flex-direction:column;gap:10px;align-items:stretch;transition:width .2s}
+.bfpages img,.bfpages .bfpage{display:block;width:100%;height:auto;border-radius:4px;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.4)}
+.bfull:not(.zoomed) .bfpages img{max-height:calc(100dvh - 140px);object-fit:contain;width:auto;max-width:100%;margin:0 auto}
+.bfload{color:#cdd6e2;display:flex;align-items:center;justify-content:center;gap:10px;padding:40px 0;font-size:14px}
+.bfload svg{width:14px;height:14px;vertical-align:-2px}
+.bfz{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:rgba(255,255,255,.08);color:#fff;font-size:20px;font-weight:600;display:grid;place-items:center;line-height:1}
+.bfz.txt svg{width:17px;height:17px}
+.bfull iframe{border:0;background:#fff;width:100%;height:calc(100dvh - 150px)}
+.bfedit{flex:none;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 10px;padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--line);border-radius:18px 18px 0 0;box-shadow:0 -6px 24px rgba(0,0,0,.35)}
+.bfull:has(.bfedit){padding-bottom:0}
+.bfedit label{display:flex;flex-direction:column;gap:2px;min-width:0}
+.bfedit label.wide{grid-column:1/-1}
+.bfedit span{font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.bfedit input{width:100%;min-width:0;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:9px 10px;font:inherit;font-size:16px;color:var(--fg)}
+.bfedit input:placeholder-shown{border-color:var(--amber)}
 .exrow{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
 .exrow>span{flex:1;min-width:0;display:flex;flex-direction:column}
 .exrow small{color:var(--muted);font-size:13px}
@@ -368,6 +381,12 @@ textarea.input{resize:vertical;line-height:1.45}
 .bhead{display:flex;align-items:center;gap:10px;min-width:0}
 .bthumb{width:40px;height:50px;flex:none;border-radius:6px;border:1px solid var(--line);background:var(--surface-2) center/cover no-repeat;display:grid;place-items:center;font-size:10px;font-weight:800;color:var(--red)}
 .bthumb.none{color:var(--muted)} .bthumb svg{width:18px;height:18px}
+.bthumb{position:relative;overflow:hidden}
+.bthumb i{position:absolute;left:0;right:0;bottom:0;font-style:normal;font-size:8.5px;font-weight:800;color:#fff;background:rgba(196,22,29,.85);text-align:center;line-height:13px}
+.bview{flex:1;min-width:0;display:flex;align-items:center;gap:10px;background:none;border:0;padding:0;text-align:left;color:inherit;font:inherit;cursor:pointer;border-radius:8px}
+.bview:disabled{cursor:default}
+.bview small svg{width:12px;height:12px;vertical-align:-2px}
+.bview:not(:disabled) small{color:var(--link)}
 .bname{flex:1;min-width:0;display:flex;flex-direction:column}
 .bname b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bname small{color:var(--faint);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
