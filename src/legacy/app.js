@@ -1974,6 +1974,7 @@ export function startApp(){
     openSheet(x?"Ausgabe":"Neue Ausgabe", `
       <div id="aPrev">${belegPreviewHtml(beleg)}</div>
       <div class="ocrbar" id="aOcr" hidden aria-live="polite"></div>
+      <div class="dupwarn" id="aDup" hidden role="alert"></div>
       <div class="group"><span class="glabel">Beleg</span><div class="box">
         <div class="field"><label for="aLief">Lieferant / Händler</label><input id="aLief" list="aLiefList" placeholder="z. B. Mobilesentrix" value="${esc(d.lieferant)}" autocomplete="off"></div>
         <datalist id="aLiefList">${lief.map(l=>`<option value="${esc(l)}">`).join("")}</datalist>
@@ -1993,6 +1994,8 @@ export function startApp(){
       ${x?`<button class="btn danger" id="aDel">Ausgabe löschen</button><div id="delConfirm"></div>`:""}`,
       () => {
         const brutto=parseNum(val("aBrutto")), lieferant=val("aLief");
+        dupCheck(); if(dupHit && !dupOk){ const b=$("#aDup"); b.classList.remove("shake"); void b.offsetWidth; b.classList.add("shake"); b.scrollIntoView({block:"center", behavior:"smooth"});
+          toast("Möglicherweise doppelt – bitte bestätigen oder abbrechen"); return false; }
         if(!lieferant){ toast("Bitte Lieferant / Händler eintragen"); $("#aLief").focus(); return false; }
         if(!(brutto>0)){ toast("Bitte den Bruttobetrag eintragen"); $("#aBrutto").focus(); return false; }
         const o={...d, lieferant, belegNr:val("aNr"), datum:val("aDatum")||today(), brutto:r2(brutto), satz:+d.satz, kategorie:val("aKat"), auftragId:val("aJob"), notiz:val("aNotiz")};
@@ -2010,9 +2013,23 @@ export function startApp(){
       $("#aSplit").innerHTML = c.p ? `<span>Netto <b class="num">${eur(c.netto)}</b></span><span>${S.firma.kleinunternehmer?"darin MwSt.":"Vorsteuer"} <b class="num">${eur(c.vst)}</b></span>` : `<span>Ohne MwSt. – z. B. Porto, Privatverkauf, Kleinunternehmer</span>`; };
     split(); $("#aBrutto").oninput=split;
     const touched=new Set(); let ocrTok=0, ocrText=x?.ocrText||"";
+    let dupHit=null, dupOk=false; const saveLbl = x?"Sichern":"Speichern";
+    const dupCheck=()=>{ const box=$("#aDup"); if(!box) return;
+      const f=findDupAusgabe({lieferant:val("aLief"), datum:val("aDatum"), nr:val("aNr"), brutto:parseNum(val("aBrutto"))}, x?.id);
+      if(!f){ dupHit=null; dupOk=false; box.hidden=true; box.innerHTML=""; }
+      else { if(dupHit?.id!==f.hit.id) dupOk=false; dupHit=f.hit; const h=f.hit;
+        box.hidden=false;
+        box.innerHTML=`<div class="dw-h">⚠︎ Schon erfasst?</div>
+          <div class="dw-b"><b>${esc(h.lieferant||"Ohne Händler")}</b><span>${deDate(h.datum)} · <b class="num">${eur(h.brutto)}</b></span></div>
+          <small>${f.why}${h.belegNr?` · Nr. <span class="mono">${esc(h.belegNr)}</span>`:""}${h.kategorie?` · ${esc(h.kategorie)}`:""}${h.created?` · erfasst am ${deDate(h.created)}`:""}</small>
+          <label class="dw-c"><input type="checkbox" id="aDupOk" ${dupOk?"checked":""}><span>Trotzdem als <b>neue</b> Ausgabe speichern</span></label>`;
+        $("#aDupOk").onchange=e=>{ dupOk=e.target.checked; updSave(); }; }
+      updSave(); };
+    const updSave=()=>{ const sb=$("#sSave"); if(!sb || !$("#aDup")) return; const warn=!!dupHit && !dupOk; sb.classList.toggle("dup", warn); sb.textContent = warn ? "Doppelt?" : saveLbl; };
     const setSatz=p=>{ d.satz=p; $$("#aSatz [data-satz]").forEach(z=>z.setAttribute("aria-pressed", +z.dataset.satz===p)); split(); };
     $$("#aSatz [data-satz]").forEach(b=>b.onclick=()=>{ touched.add("aSatz"); $("#aSatz").classList.remove("ocrok","ocrcheck"); setSatz(+b.dataset.satz); });
     const mark=(id,cls)=>{ const f=id==="aSatz"?$("#aSatz"):$("#"+id)?.closest(".field"); if(!f) return; f.classList.remove("ocrok","ocrcheck"); if(cls) f.classList.add(cls); };
+    ["aLief","aDatum","aBrutto","aNr"].forEach(id=>{ $("#"+id).addEventListener("input", ()=>dupCheck()); $("#"+id).addEventListener("change", ()=>dupCheck()); });
     ["aLief","aDatum","aBrutto","aNr","aKat","aNotiz"].forEach(id=>{ const el=$("#"+id); const h=()=>{ touched.add(id); mark(id,null); }; el.addEventListener("input",h); el.addEventListener("change",h); });
     const ocrBar=html=>{ const b=$("#aOcr"); if(!b) return; b.hidden=!html; b.innerHTML=html||""; };
     const txtBtn=(ki)=>ocrText?`<button type="button" class="linkbtn" id="aOcrShow" data-l="${ki?"KI-Antwort zeigen":"Erkannten Text zeigen"}">${ki?"KI-Antwort zeigen":"Erkannten Text zeigen"}</button>`:"";
@@ -2050,7 +2067,7 @@ export function startApp(){
       if(r.satz!=null && !touched.has("aSatz")){ setSatz(r.satz); mark("aSatz","ocrok"); got.push(`${r.satz} % MwSt.`); }
       if(r.kategorie && !touched.has("aKat")){ $("#aKat").value=r.kategorie; mark("aKat","ocrok"); got.push(esc(r.kategorie)); }
       if(r.notiz && !touched.has("aNotiz") && !val("aNotiz")){ $("#aNotiz").value=r.notiz; mark("aNotiz","ocrok"); got.push(`„${esc(r.notiz)}“`); }
-      split();
+      split(); dupCheck();
       const fehlt=[!r.betrag&&"Betrag", !r.datum&&"Datum"].filter(Boolean);
       const ok=got.length>0, ki=quelle==="ki";
       const title = ok ? (ki?`Von der KI erkannt <i class="kibadge">KI</i>`:"Automatisch erkannt") : "Nichts Eindeutiges erkannt";
@@ -2171,11 +2188,24 @@ export function startApp(){
     inp.click();
   }
   const btStatus = { wait:["Wartet",""], read:["Wird gelesen …","run"], ki:["KI","ki"], lokal:["Lokal gelesen","lok"], err:["Nicht gelesen","err"] };
+  /* Duplikat-Prüfung (Einzelscan + Stapel): gleiche Rechnungs-Nr. ODER Händler + Datum + Betrag identisch */
+  const nrKey = v => String(v||"").replace(/[\s\-_/.:#]/g,"").toLowerCase();
+  function findDupAusgabe(d, exclude){
+    const nr=nrKey(d.nr), lf=ocrNorm(d.lieferant), br=+d.brutto||0;
+    for(const x of S.ausgaben){
+      if(x.id===exclude) continue;
+      const xl=ocrNorm(x.lieferant);
+      // gleiche Rechnungs-Nr. – bei kurzen Nummern (z. B. Bon „4711“) nur, wenn der Händler nicht eindeutig ein anderer ist
+      if(nr.length>=3 && nrKey(x.belegNr)===nr && (nr.length>=8 || !lf || !xl || lf===xl || lf.includes(xl) || xl.includes(lf))) return {hit:x, why:"Gleiche Rechnungs-Nr."};
+      if(br>0 && lf && Math.abs((+x.brutto||0)-br)<0.005 && x.datum===d.datum && xl===lf) return {hit:x, why:"Gleicher Händler, Datum und Betrag"};
+    }
+    return null;
+  }
   function btDup(r){
-    const d=r.d; if(!(d.brutto>0)) return null;
-    const hit=S.ausgaben.find(x=> (d.nr && x.belegNr && x.belegNr.replace(/\s/g,"").toLowerCase()===d.nr.replace(/\s/g,"").toLowerCase())
-      || (Math.abs((+x.brutto||0)-d.brutto)<0.005 && x.datum===d.datum && ocrNorm(x.lieferant)===ocrNorm(d.lieferant) && d.lieferant));
+    const d=r.d;
+    const f=findDupAusgabe(d); const hit=f?.hit;
     if(hit) return `Schon erfasst? ${esc(hit.lieferant)} · ${deDate(hit.datum)} · ${eur(hit.brutto)}`;
+    if(!(d.brutto>0)) return null;
     const twin=BT.rows.find(o=>o!==r && o.on && o.d.brutto===d.brutto && o.d.datum===d.datum && ocrNorm(o.d.lieferant)===ocrNorm(d.lieferant) && d.lieferant);
     return twin && BT.rows.indexOf(twin)<BT.rows.indexOf(r) ? "Doppelt in dieser Auswahl" : null;
   }
