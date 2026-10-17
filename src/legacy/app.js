@@ -507,7 +507,7 @@ export function startApp(){
       if(a==="exportKunden") exportMenu("kunden"); if(a==="exportTeile") exportMenu("teile");
       if(a==="pdfsample") openViewer(sampleDoc(), `<b>Beispiel-Blatt · ${LAYOUTS[pdfLayout()].l}</b><span>So sehen Ihre Belege mit den aktuellen Einstellungen aus.</span>`);
       if(a==="csvExport") exportCsv();
-      if(a==="newAus") newAusgabe(); if(a==="ausExport") ausExportMenu();
+      if(a==="newAus") newAusgabe(); if(a==="multiAus") pickMulti(); if(a==="ausExport") ausExportMenu();
       if(a==="csvAus") exportAusCsv(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : ""));
       if(a==="paket") exportPaket(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : ""), true);
       if(a==="backupExport") exportBackup();
@@ -1901,8 +1901,8 @@ export function startApp(){
   function pickBeleg(cb, withoutOpt){
     belegInputs();
     const opts=[{label:"Foto aufnehmen", sub:"Kamera öffnen und Beleg abfotografieren", k:"cam"},{label:"Foto oder PDF auswählen", sub:"Aus Fotos, Dateien oder iCloud Drive", k:"file"}];
-    if(withoutOpt) opts.push({label:"Ohne Beleg erfassen", sub:"Nur Betrag und Lieferant eintragen", k:"none"});
-    openPicker("Beleg erfassen", opts, o => { if(o.k==="none") return cb(null); belegCb=cb; $(o.k==="cam"?"#belegCam":"#belegFile").click(); });
+    if(withoutOpt) opts.push({label:"Mehrere Belege auf einmal", sub:"Fotos oder PDFs auswählen – werden nacheinander ausgelesen", k:"multi"},{label:"Ohne Beleg erfassen", sub:"Nur Betrag und Lieferant eintragen", k:"none"});
+    openPicker("Beleg erfassen", opts, o => { if(o.k==="none") return cb(null); if(o.k==="multi") return pickMulti(); belegCb=cb; $(o.k==="cam"?"#belegCam":"#belegFile").click(); });
   }
   const newAusgabe = (auftragId="") => pickBeleg(b => openAusgabe(null, {beleg:b, auftragId}), true);
 
@@ -2059,10 +2059,10 @@ export function startApp(){
         <div class="klist">${byKat.map(([k,v])=>`<div><span class="kdot" style="--kc:${AKAT_C[k]}">${esc(k)}</span><span class="num">${eur(v)}</span><small>${Math.round(v/tot.b*100)} %</small></div>`).join("")}</div>`:""}
         ${jobSum?`<div class="meta" style="margin-top:2px">${ico.phone} ${eur(jobSum)} davon Aufträgen zugeordnet</div>`:""}
       </div>`;
-    const actions=`<div class="btnrow"><button class="btn accent" data-act="newAus">${ico.cam} Beleg erfassen / scannen</button>${S.ausgaben.length?`<button class="btn ghost" data-act="ausExport">${ico.dl} Export ▾</button>`:""}</div>`;
+    const actions=`<div class="btnrow"><button class="btn accent" data-act="newAus">${ico.cam} Beleg erfassen / scannen</button><button class="btn ghost" data-act="multiAus">${ico.plus} Mehrere Belege</button>${S.ausgaben.length?`<button class="btn ghost" data-act="ausExport">${ico.dl} Export ▾</button>`:""}</div>`;
     if(!S.ausgaben.length) return `${seg}${hintHtml("ausgaben","<b>Ausgaben &amp; Einkäufe.</b> Fotografieren Sie Eingangsrechnungen und Quittungen direkt mit dem iPhone. Betrag, MwSt. und Kategorie tragen Sie kurz ein – fertig für den Steuerberater.")}
       <div class="empty">${bigIcon()}<h2>Noch keine Ausgaben</h2><p>Tippen Sie auf „Beleg erfassen“, fotografieren Sie die Quittung oder wählen Sie eine PDF-Rechnung Ihres Lieferanten.</p>
-      <div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newAus">${ico.cam} Beleg erfassen / scannen</button></div></div>`;
+      <div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newAus">${ico.cam} Beleg erfassen / scannen</button><button class="btn ghost" data-act="multiAus">${ico.plus} Mehrere Belege erfassen</button></div></div>`;
     let html=`${seg}${head}${summary}${actions}`, last=null;
     if(!list.length) return html+`<div class="empty" style="padding:24px 16px"><p>Keine Ausgaben im ${MONTHS[m-1]}.</p></div>`;
     for(const x of list){ if(x.datum!==last){ html+=`<div class="daylabel">${longDate(x.datum)}</div>`; last=x.datum; } html+=ausCard(x); }
@@ -2120,6 +2120,145 @@ export function startApp(){
       {label:`CSV – ganzes Jahr ${y}`, sub:`${ny} Ausgabe${ny===1?"":"n"}`, k:"csvY"},
       {label:`ZIP mit Belegen – Jahr ${y}`, sub:"CSV plus alle Belegfotos und PDFs", k:"zipY"}],
       o => { const pre=o.k.endsWith("M")?ym:y; o.k.startsWith("csv") ? exportAusCsv(pre) : exportPaket(pre,false); });
+  }
+
+  /* ---------- Mehrere Belege auf einmal (Stapelerfassung) ---------- */
+  const BATCH_MAX = 30;
+  let BT = null;   // { rows:[], tok, running, noKi, kiNote }
+  function pickMulti(){
+    let inp=$("#belegMulti");
+    if(!inp){ document.body.insertAdjacentHTML("beforeend", `<input type="file" id="belegMulti" accept="image/*,application/pdf,.pdf" multiple hidden>`); inp=$("#belegMulti");
+      inp.onchange = e => { const files=[...(e.target.files||[])]; e.target.value=""; if(files.length) openBatch(files); }; }
+    inp.click();
+  }
+  const btStatus = { wait:["Wartet",""], read:["Wird gelesen …","run"], ki:["KI","ki"], lokal:["Lokal gelesen","lok"], err:["Nicht gelesen","err"] };
+  function btDup(r){
+    const d=r.d; if(!(d.brutto>0)) return null;
+    const hit=S.ausgaben.find(x=> (d.nr && x.belegNr && x.belegNr.replace(/\s/g,"").toLowerCase()===d.nr.replace(/\s/g,"").toLowerCase())
+      || (Math.abs((+x.brutto||0)-d.brutto)<0.005 && x.datum===d.datum && ocrNorm(x.lieferant)===ocrNorm(d.lieferant) && d.lieferant));
+    if(hit) return `Schon erfasst? ${esc(hit.lieferant)} · ${deDate(hit.datum)} · ${eur(hit.brutto)}`;
+    const twin=BT.rows.find(o=>o!==r && o.on && o.d.brutto===d.brutto && o.d.datum===d.datum && ocrNorm(o.d.lieferant)===ocrNorm(d.lieferant) && d.lieferant);
+    return twin && BT.rows.indexOf(twin)<BT.rows.indexOf(r) ? "Doppelt in dieser Auswahl" : null;
+  }
+  function btRowHtml(r, i){
+    const [stL, stC]=btStatus[r.st]; const d=r.d, ready=!["wait","read"].includes(r.st);
+    const chk=f=>r.check.has(f)?" bchk":"";
+    const dup=ready ? btDup(r) : null;
+    const miss=ready && r.on && (!d.lieferant || !(d.brutto>0));
+    const thumb = !r.beleg ? `<span class="bthumb none">${ico.doc}</span>` : r.beleg.typ==="application/pdf" ? `<span class="bthumb pdf">PDF</span>` : `<span class="bthumb" style="background-image:url('${r.beleg.data}')"></span>`;
+    return `<div class="brow${r.on?"":" off"}${miss?" miss":""}" data-bi="${i}">
+      <div class="bhead">${thumb}<span class="bname"><b>${esc(d.lieferant||r.name)}</b><small>${esc(r.name)}</small></span>
+        <span class="bst ${stC}">${r.st==="read"?`<span class="ocrspin" aria-hidden="true"></span>`:""}${stL}</span>
+        ${ready?`<label class="bon" title="Übernehmen"><input type="checkbox" data-bf="on" ${r.on?"checked":""}><span>Übernehmen</span></label>`:""}</div>
+      ${ready?`<div class="bgrid">
+        <label class="wide${chk("lieferant")}"><span>Händler</span><input data-bf="lieferant" value="${esc(d.lieferant)}" placeholder="Pflichtfeld"></label>
+        <label class="${chk("datum")}"><span>Datum</span><input type="date" data-bf="datum" value="${d.datum}"></label>
+        <label class="${chk("brutto")}"><span>Brutto €</span><input data-bf="brutto" class="num" inputmode="decimal" value="${d.brutto>0?d.brutto.toFixed(2).replace(".",","):""}" placeholder="0,00"></label>
+        <label class="${chk("nr")}"><span>Rechnungs-Nr.</span><input data-bf="nr" class="mono" value="${esc(d.nr)}" placeholder="–"></label>
+        <label><span>MwSt.</span><select data-bf="satz">${SAETZE.map(p=>`<option value="${p}" ${+d.satz===p?"selected":""}>${p} %</option>`).join("")}</select></label>
+        <label class="wide"><span>Kategorie</span><select data-bf="kategorie">${AKAT.map(k=>`<option ${d.kategorie===k?"selected":""}>${k}</option>`).join("")}</select></label>
+        <label class="wide"><span>Notiz</span><input data-bf="notiz" value="${esc(d.notiz)}" placeholder="optional"></label>
+      </div>${dup?`<div class="bwarn">⚠︎ ${dup}</div>`:""}${r.msg?`<div class="bmsg">${esc(r.msg)}</div>`:""}`:""}
+    </div>`;
+  }
+  function btRender(i){
+    if(!BT || !$("#btList")) return;
+    if(i==null) $("#btList").innerHTML=BT.rows.map(btRowHtml).join("");
+    else { const el=$(`#btList [data-bi="${i}"]`); if(el) el.outerHTML=btRowHtml(BT.rows[i], i); }
+    const done=BT.rows.filter(r=>!["wait","read"].includes(r.st)).length, n=BT.rows.length;
+    const cur=BT.rows.findIndex(r=>r.st==="read");
+    $("#btProgTxt").textContent = BT.running ? `Verarbeite Beleg ${Math.min(done+1,n)} von ${n} …` : `${n} Beleg${n===1?"":"e"} ausgelesen`;
+    $("#btProg i").style.width = Math.round((done+(cur>=0?.35:0))/n*100)+"%";
+    $("#btProg").classList.toggle("done", !BT.running);
+    const sel=BT.rows.filter(r=>r.on && !["wait","read"].includes(r.st));
+    const sum=sel.reduce((s,r)=>s+(r.d.brutto||0),0);
+    const go=$("#btSave"); if(go){ go.disabled = BT.running || !sel.length; go.innerHTML = BT.running ? `<span class="ocrspin" aria-hidden="true"></span> Belege werden gelesen …` : `${ico.checkc} Alle ${sel.length} Ausgabe${sel.length===1?"":"n"} speichern · ${eur(sum)}`; }
+    const note=$("#btNote"); if(note){ note.hidden=!BT.kiNote; note.textContent=BT.kiNote||""; }
+  }
+  function btFrom(res, check){
+    const d={ lieferant:res.lieferant?.name||"", datum:res.datum?.iso||today(), nr:res.nr?.nr||"", brutto:res.betrag?.v||0, satz:res.satz??19, kategorie:res.kategorie||"", notiz:res.notiz||"" };
+    if(!res.betrag || !res.betrag.sicher) check.add("brutto"); if(!res.datum || !res.datum.sicher) check.add("datum");
+    if(!res.lieferant || !res.lieferant.sicher) check.add("lieferant"); if(res.nr && !res.nr.sicher) check.add("nr");
+    return d;
+  }
+  async function btProcess(tok){
+    const lastKat = S.ausgaben.slice().sort((a,b)=>(b.created||"").localeCompare(a.created||""))[0]?.kategorie || "Ersatzteile";
+    const known=[...new Set(S.ausgaben.map(a=>a.lieferant).filter(Boolean))], own=[S.firma.name, S.firma.ansprechpartner, "RepairMobile"];
+    for(let i=0;i<BT.rows.length;i++){
+      if(!BT || BT.tok!==tok) return;
+      const r=BT.rows[i]; r.st="read"; btRender(i);
+      try{
+        r.beleg = await fileToBeleg(r.file);
+        if(!r.beleg) throw new Error("Datei nicht lesbar (Foto oder PDF wählen)");
+        let res=null;
+        if(geminiKey() && !BT.noKi){
+          try{ res=await geminiBeleg(r.beleg); r.src="ki"; r.ocrText=res.raw; }
+          catch(e){ if(["quota","key","disabled","region","offline","nokey","net"].includes(e.code)){ BT.noKi=true; BT.kiNote=`KI nicht verfügbar (${gemMsg(e).split(" – ")[0]}) – die übrigen Belege werden lokal gelesen.`; }
+            r.msg="KI: "+gemMsg(e).split(" – ")[0]+" – lokal gelesen"; }
+        }
+        if(!res){ const o=await ocrBeleg(r.beleg); res=ocrExtract(o.text, known, own); r.src="lokal"; r.ocrText=(o.text||"").slice(0,4000); }
+        if(!BT || BT.tok!==tok) return;
+        r.d=btFrom(res, r.check); if(!r.d.kategorie) r.d.kategorie=lastKat;
+        if(!res.lieferant && !res.betrag && !res.datum) r.msg=(r.msg?r.msg+" · ":"")+"Nichts erkannt – bitte von Hand ausfüllen";
+        r.st=r.src;
+        if(btDup(r)){ r.on=false; r.msg=(r.msg?r.msg+" · ":"")+"Automatisch abgewählt – zum Übernehmen Häkchen setzen"; }
+      }catch(e){ if(!BT || BT.tok!==tok) return; r.st="err"; r.msg=e.message||"Fehler"; r.d={lieferant:"", datum:today(), nr:"", brutto:0, satz:19, kategorie:lastKat, notiz:""}; ["brutto","lieferant"].forEach(f=>r.check.add(f)); }
+      btRender(i);
+    }
+    if(!BT || BT.tok!==tok) return;
+    BT.running=false; btRender();
+    const n=BT.rows.filter(r=>r.st==="err").length, p=BT.rows.filter(r=>r.on && (!r.d.lieferant || !(r.d.brutto>0))).length;
+    toast(n ? `${n} Beleg${n===1?"":"e"} nicht lesbar – bitte prüfen` : p ? `${p} Beleg${p===1?"":"e"} unvollständig – rot markiert` : "Alle Belege ausgelesen – bitte kurz prüfen");
+  }
+  function openBatch(files){
+    if(files.length>BATCH_MAX){ toast(`Höchstens ${BATCH_MAX} Belege auf einmal – die ersten ${BATCH_MAX} werden gelesen`); files=files.slice(0,BATCH_MAX); }
+    BT={ rows:files.map(f=>({file:f, name:f.name||"Beleg", st:"wait", on:true, check:new Set(), d:{}, msg:""})), tok:Date.now(), running:true, noKi:false, kiNote:"" };
+    openSheet(`Mehrere Belege <small>${files.length}</small>`, `
+      <div class="btprog"><div class="btprogrow"><b id="btProgTxt">Verarbeite Beleg 1 von ${files.length} …</b><span class="kibadge" ${geminiKey()?"":"hidden"}>KI</span></div>
+        <div class="ocrprog" id="btProg"><i></i></div>
+        <small class="ocrnote">${geminiKey()?"Google Gemini liest die Belege nacheinander aus.":"Die Belege werden auf dem Gerät ausgelesen (für KI-Erkennung Gemini-Key unter Firmendaten eintragen)."} Werte lassen sich gleich hier anpassen.</small>
+        <small class="ocrnote kiwarn" id="btNote" hidden></small></div>
+      <div id="btList" class="btlist"></div>
+      <p class="help">Gelb = bitte prüfen · Rot = Händler oder Betrag fehlt. Häkchen „Übernehmen“ entfernen, um einen Beleg auszulassen.</p>`,
+      null, "", { foot:`<button class="btn accent wide" id="btSave" disabled>Belege werden gelesen …</button>`, cancelLabel:"Abbrechen" });
+    btRender();
+    const list=$("#btList");
+    const upd=e=>{ const el=e.target.closest("[data-bf]"), row=e.target.closest("[data-bi]"); if(!el||!row||!BT) return;
+      const r=BT.rows[+row.dataset.bi], f=el.dataset.bf;
+      if(f==="on"){ r.on=el.checked; btRender(+row.dataset.bi); return; }
+      r.d[f] = f==="brutto" ? r2(parseNum(el.value)||0) : f==="satz" ? +el.value : el.value.trim();
+      r.check.delete(f); el.closest("label")?.classList.remove("bchk");
+      if(f==="lieferant"){ const b=row.querySelector(".bname b"); if(b) b.textContent=r.d.lieferant||r.name; }
+      row.classList.toggle("miss", r.on && (!r.d.lieferant || !(r.d.brutto>0)));
+      if(e.type==="change") { const w=row.querySelector(".bwarn"), dup=btDup(r); if(w&&!dup) w.remove(); }
+      const sel=BT.rows.filter(x=>x.on && !["wait","read"].includes(x.st)), go=$("#btSave");
+      if(go && !BT.running) go.innerHTML=`${ico.checkc} Alle ${sel.length} Ausgabe${sel.length===1?"":"n"} speichern · ${eur(sel.reduce((s,x)=>s+(x.d.brutto||0),0))}`; };
+    list.addEventListener("input", upd); list.addEventListener("change", upd);
+    $("#btSave").onclick=btSave;
+    const tok=BT.tok; btProcess(tok);
+    // Sheet geschlossen → Verarbeitung stoppen
+    const stop=()=>{ if(BT && BT.tok===tok && $("#sheet").hidden){ BT=null; } else if(BT && BT.tok===tok) setTimeout(stop, 800); }; setTimeout(stop, 800);
+  }
+  async function btSave(){
+    if(!BT || BT.running) return;
+    const sel=BT.rows.filter(r=>r.on && !["wait","read"].includes(r.st));
+    const bad=sel.filter(r=>!r.d.lieferant || !(r.d.brutto>0));
+    if(bad.length){ toast(`${bad.length} Beleg${bad.length===1?"":"e"}: Händler oder Betrag fehlt`); const i=BT.rows.indexOf(bad[0]); $(`#btList [data-bi="${i}"]`)?.scrollIntoView({block:"center", behavior:"smooth"}); btRender(); return; }
+    const go=$("#btSave"); go.disabled=true; go.innerHTML=`<span class="ocrspin" aria-hidden="true"></span> Speichere …`;
+    const now=nowStamp(), out=[];
+    sel.forEach((r,k)=>{ const id=uid()+k; const d=r.d;
+      const o={ id, datum:d.datum||today(), lieferant:d.lieferant, belegNr:d.nr||"", brutto:r2(d.brutto), satz:+d.satz, kategorie:d.kategorie||"Sonstiges", auftragId:"", notiz:d.notiz||"", created:now };
+      if(r.beleg){ o.bild=true; o.bildTyp=r.beleg.typ; o.bildName=r.beleg.name; o.bildLokal = mode==="db" && r.beleg.data.length>DB_IMG_MAX; if(r.ocrText) o.ocrText=r.ocrText; }
+      out.push([o, r.beleg]); upsertLocal("ausgaben", o); });
+    lsSave(); UI.ausMonth=(out[out.length-1]?.[0].datum||today()).slice(0,7); render();
+    let fail=0;
+    for(const [o,b] of out){
+      if(mode==="db"){ const {id,...body}=o; try{ await dbRefs.ausgaben.doc(id).set(body); }catch(e){ fail++; } }
+      if(b) await BILD.put(o.id, b);
+    }
+    const sum=out.reduce((s,[o])=>s+o.brutto,0);
+    BT=null; closeSheet();
+    toast(fail ? `${out.length-fail} von ${out.length} gespeichert – ${fail} fehlgeschlagen` : `${out.length} Ausgabe${out.length===1?"":"n"} gespeichert · ${eur(sum)}`);
   }
 
   /* ---------- Kontakte & Produkte: Import / Export ---------- */
