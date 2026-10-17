@@ -1,11 +1,12 @@
 // RepairMobile Werkbank – Service Worker
-// Hält die App offline verfügbar. Neue Versionen werden beim nächsten Start geladen.
-const CACHE = "werkbank-v1";
+// Hält die App offline verfügbar. Jede neue Version bekommt einen eigenen Speicher; alte Dateien werden gelöscht.
+const CACHE = "werkbank-20261017224924";
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./apple-touch-icon.png", "./icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE)).catch(() => {}));
+  // cache:"reload" = am HTTP-Zwischenspeicher von GitHub vorbei, immer die frische Version
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(CORE.map((u) => new Request(u, { cache: "reload" })))).catch(() => {}));
 });
 
 self.addEventListener("activate", (e) => {
@@ -21,12 +22,14 @@ self.addEventListener("fetch", (e) => {
   if (req.method !== "GET") return;
   const url = new URL(req.url);
 
-  // Seiten: erst Netz (immer aktuell), offline aus dem Cache
+  // Seiten: immer frisch vom Server (ohne HTTP-Zwischenspeicher). Nur wenn das Netz nach dem
+  // Aufwachen noch nicht bereit ist (> 4 s) oder fehlt, die zuletzt gespeicherte Seite nehmen.
   if (req.mode === "navigate") {
+    const net = fetch(req.url, { cache: "no-store", credentials: "same-origin" })
+      .then((res) => { if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put("./index.html", copy)); } return res; });
     e.respondWith(
-      fetch(req)
-        .then((res) => { const copy = res.clone(); caches.open(CACHE).then((c) => c.put("./index.html", copy)); return res; })
-        .catch(() => caches.match("./index.html"))
+      Promise.race([net.catch(() => null), new Promise((r) => setTimeout(() => r(null), 4000))])
+        .then((res) => res || caches.match("./index.html").then((hit) => hit || net))
     );
     return;
   }
