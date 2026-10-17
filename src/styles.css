@@ -409,6 +409,16 @@ textarea.input{resize:vertical;line-height:1.45}
 .bwarn{font-size:13px;color:var(--amber);background:var(--amber-soft);border-radius:8px;padding:6px 9px}
 .bmsg{font-size:12.5px;color:var(--muted)}
 #btSave .ocrspin{width:16px;height:16px;border-color:rgba(255,255,255,.35);border-top-color:#fff}
+.dupwarn{background:var(--amber-soft);border:1.5px solid var(--amber);border-radius:var(--r);padding:12px 14px;display:flex;flex-direction:column;gap:4px;color:var(--fg)}
+.dupwarn[hidden]{display:none}
+.dw-h{font-weight:800;color:var(--amber);font-size:15px}
+.dw-b{display:flex;flex-wrap:wrap;justify-content:space-between;gap:2px 12px;font-size:15px}
+.dupwarn small{color:var(--muted);font-size:12.5px}
+.dw-c{display:flex;align-items:center;gap:8px;margin-top:6px;padding-top:8px;border-top:1px solid color-mix(in srgb,var(--amber) 35%,transparent);font-size:14px;cursor:pointer}
+.dw-c input{width:20px;height:20px;accent-color:var(--amber);margin:0;flex:none}
+.dupwarn.shake{animation:dwShake .45s}
+@keyframes dwShake{20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
+.hbtn.go.dup{background:var(--amber);color:#fff}
 .seg.ocrok{box-shadow:0 0 0 2px color-mix(in srgb,var(--hi) 45%,transparent)}
 .kuhint svg{width:18px;height:18px;flex:none;margin-top:1px;color:var(--blue)}
 .kuhint i{font-style:normal;color:var(--muted)}
