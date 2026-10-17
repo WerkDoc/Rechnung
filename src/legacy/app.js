@@ -1912,16 +1912,55 @@ export function startApp(){
     return `<div class="bprev${pdf?" pdf":""}">${pdf?`<div class="bpdf">${ico.doc}<b>${esc(b.name||"Beleg.pdf")}</b><small>PDF · ${kbTxt(b.size||b.data.length*.75)}</small></div>`:`<img src="${b.data}" alt="Beleg-Foto" id="aImg">`}
       <div class="bact"><button type="button" class="btn ghost sm" id="aOpen">${ico.preview} Ansehen</button><button type="button" class="btn ghost sm" id="aRep">${ico.cam} Ersetzen</button><button type="button" class="btn ghost sm" id="aDelB">Entfernen</button></div></div>`;
   }
-  function showBeleg(b){
-    if(!b) return;
-    const ov=document.createElement("div"); ov.className="bfull";
-    if(b.typ==="application/pdf"){ const blob=dataUrlBlob(b.data); const u=URL.createObjectURL(blob);
-      ov.innerHTML=`<div class="bfbar"><b>${esc(b.name||"Beleg.pdf")}</b><a class="btn sm" href="${u}" target="_blank" rel="noopener" download="${esc(b.name||"Beleg.pdf")}">${ico.dl} Öffnen</a><button class="btn ghost sm" data-x>Schließen</button></div><iframe src="${u}" title="Beleg"></iframe>`;
-      ov._u=u; }
-    else ov.innerHTML=`<div class="bfbar"><b>Beleg</b><button class="btn ghost sm" data-x>Schließen</button></div><div class="bfimg"><img src="${b.data}" alt="Beleg"></div>`;
-    ov.onclick=e=>{ if(e.target.closest("[data-x]") || e.target===ov){ if(ov._u) setTimeout(()=>URL.revokeObjectURL(ov._u),1000); ov.remove(); } };
-    document.body.appendChild(ov);
+  /* Beleg im Vollbild: Fotos mit Zoom, PDFs als echte Seiten (pdf.js) – optional mit Eingabefeldern unten */
+  async function pdfDoc(dataUrl){
+    await withTimeout(loadScript(OCR_CDN.pdf), 30000, "PDF-Anzeige lädt nicht");
+    const pdfjs=window.pdfjsLib; pdfjs.GlobalWorkerOptions.workerSrc=OCR_CDN.pdfWorker;
+    return pdfjs.getDocument({data:dataUrlBytes(dataUrl)}).promise;
   }
+  async function pdfThumb(dataUrl, w=120){
+    const doc=await pdfDoc(dataUrl), pg=await doc.getPage(1), v1=pg.getViewport({scale:1}), vp=pg.getViewport({scale:w*2/v1.width});
+    const c=document.createElement("canvas"); c.width=vp.width; c.height=vp.height; const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height);
+    await pg.render({canvasContext:g, viewport:vp}).promise; return c.toDataURL("image/jpeg",.8);
+  }
+  function showBeleg(b, opts={}){
+    if(!b) return;
+    const pdf=b.typ==="application/pdf", ov=document.createElement("div"); ov.className="bfull"; let zoom=1, u=null;
+    if(pdf) u=URL.createObjectURL(dataUrlBlob(b.data));
+    const f=opts.fields;
+    ov.innerHTML=`<div class="bfbar"><b>${esc(opts.title||b.name||"Beleg")}</b>
+        <button class="bfz" data-z="-1" aria-label="Verkleinern">−</button><button class="bfz" data-z="1" aria-label="Vergrößern">+</button>
+        ${pdf?`<a class="bfz txt" href="${u}" target="_blank" rel="noopener" download="${esc(b.name||"Beleg.pdf")}" aria-label="In anderer App öffnen">${ico.dl}</a>`:""}
+        <button class="btn ghost sm" data-x>Fertig</button></div>
+      <div class="bfimg" id="bfBody"><div class="bfpages" id="bfPages">${pdf?`<div class="bfload"><span class="ocrspin"></span> PDF wird geladen …</div>`:`<img src="${b.data}" alt="Beleg">`}</div></div>
+      ${f?`<div class="bfedit"><label><span>Brutto €</span><input data-q="brutto" inputmode="decimal" placeholder="0,00" value="${f.brutto>0?f.brutto.toFixed(2).replace(".",","):""}"></label>
+        <label><span>Datum</span><input data-q="datum" type="date" value="${esc(f.datum||"")}"></label>
+        <label class="wide"><span>Händler</span><input data-q="lieferant" placeholder="Händler / Lieferant" value="${esc(f.lieferant||"")}"></label>
+        <label class="wide"><span>Notiz</span><input data-q="notiz" placeholder="z. B. Display S22" value="${esc(f.notiz||"")}"></label></div>`:""}`;
+    const pages=$("#bfPages", ov);
+    const setZoom=z=>{ zoom=Math.max(1, Math.min(4, z)); pages.style.width=(zoom*100)+"%"; ov.classList.toggle("zoomed", zoom>1); };
+    const close=()=>{ if(u) setTimeout(()=>URL.revokeObjectURL(u),1000); ov.remove(); document.removeEventListener("keydown", esc_); opts.onClose?.(); };
+    const esc_=e=>{ if(e.key==="Escape") close(); };
+    ov.onclick=e=>{ if(e.target.closest("[data-x]")) return close(); const z=e.target.closest("[data-z]"); if(z) setZoom(zoom*(+z.dataset.z>0?1.5:1/1.5)); };
+    $$("img", pages).forEach(im=>im.ondblclick=()=>setZoom(zoom>1?1:2));
+    if(f) ov.addEventListener("input", e=>{ const q=e.target.dataset.q; if(!q) return; opts.onEdit?.(q, q==="brutto" ? r2(parseNum(e.target.value)||0) : e.target.value.trim()); });
+    document.addEventListener("keydown", esc_);
+    document.body.appendChild(ov);
+    if(f && opts.focus) setTimeout(()=>{ const el=$(`[data-q="${opts.focus}"]`, ov); if(el && !el.value) el.focus({preventScroll:true}); }, 350);
+    if(pdf){
+      (async()=>{
+        try{ const doc=await pdfDoc(b.data); if(!ov.isConnected) return; pages.innerHTML="";
+          const n=Math.min(doc.numPages, 12), w=Math.min(1600, (ov.clientWidth||400)*(window.devicePixelRatio||2)*1.5);
+          for(let p=1;p<=n;p++){ const pg=await doc.getPage(p), v1=pg.getViewport({scale:1}), vp=pg.getViewport({scale:w/v1.width});
+            const c=document.createElement("canvas"); c.width=vp.width; c.height=vp.height; c.className="bfpage";
+            const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); pages.appendChild(c);
+            await pg.render({canvasContext:g, viewport:vp}).promise; if(!ov.isConnected) return; }
+          if(doc.numPages>n) pages.insertAdjacentHTML("beforeend", `<div class="bfload">… ${doc.numPages-n} weitere Seiten – über ${ico.dl} öffnen</div>`);
+        }catch(e){ if(ov.isConnected) pages.innerHTML=`<iframe src="${u}" title="Beleg"></iframe>`; }
+      })();
+    }
+  }
+
   function dataUrlBlob(d){ const [h,b64]=d.split(","); const typ=(h.match(/data:([^;]+)/)||[])[1]||"application/octet-stream"; const bin=atob(b64); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new Blob([u],{type:typ}); }
 
   function openAusgabe(id, opt={}){
@@ -2145,9 +2184,10 @@ export function startApp(){
     const chk=f=>r.check.has(f)?" bchk":"";
     const dup=ready ? btDup(r) : null;
     const miss=ready && r.on && (!d.lieferant || !(d.brutto>0));
-    const thumb = !r.beleg ? `<span class="bthumb none">${ico.doc}</span>` : r.beleg.typ==="application/pdf" ? `<span class="bthumb pdf">PDF</span>` : `<span class="bthumb" style="background-image:url('${r.beleg.data}')"></span>`;
+    const tsrc = r.beleg ? (r.beleg.typ==="application/pdf" ? r.thumb : r.beleg.data) : null;
+    const thumb = !r.beleg ? `<span class="bthumb none">${ico.doc}</span>` : tsrc ? `<span class="bthumb" style="background-image:url('${tsrc}')">${r.beleg.typ==="application/pdf"?"<i>PDF</i>":""}</span>` : `<span class="bthumb pdf">PDF</span>`;
     return `<div class="brow${r.on?"":" off"}${miss?" miss":""}" data-bi="${i}">
-      <div class="bhead">${thumb}<span class="bname"><b>${esc(d.lieferant||r.name)}</b><small>${esc(r.name)}</small></span>
+      <div class="bhead"><button type="button" class="bview" data-bview ${r.beleg?"":"disabled"} aria-label="Beleg ansehen">${thumb}<span class="bname"><b>${esc(d.lieferant||r.name)}</b><small>${r.beleg?`${ico.preview} Ansehen · `:""}${esc(r.name)}</small></span></button>
         <span class="bst ${stC}">${r.st==="read"?`<span class="ocrspin" aria-hidden="true"></span>`:""}${stL}</span>
         ${ready?`<label class="bon" title="Übernehmen"><input type="checkbox" data-bf="on" ${r.on?"checked":""}><span>Übernehmen</span></label>`:""}</div>
       ${ready?`<div class="bgrid">
@@ -2190,6 +2230,7 @@ export function startApp(){
       try{
         r.beleg = await fileToBeleg(r.file);
         if(!r.beleg) throw new Error("Datei nicht lesbar (Foto oder PDF wählen)");
+        if(r.beleg.typ==="application/pdf") pdfThumb(r.beleg.data).then(t=>{ r.thumb=t; const el=$(`#btList [data-bi="${i}"] .bthumb`); if(el){ el.classList.remove("pdf"); el.style.backgroundImage=`url('${t}')`; el.innerHTML="<i>PDF</i>"; } }).catch(()=>{});
         let res=null;
         if(geminiKey() && !BT.noKi){
           try{ res=await geminiBeleg(r.beleg); r.src="ki"; r.ocrText=res.raw; }
@@ -2234,6 +2275,11 @@ export function startApp(){
       const sel=BT.rows.filter(x=>x.on && !["wait","read"].includes(x.st)), go=$("#btSave");
       if(go && !BT.running) go.innerHTML=`${ico.checkc} Alle ${sel.length} Ausgabe${sel.length===1?"":"n"} speichern · ${eur(sel.reduce((s,x)=>s+(x.d.brutto||0),0))}`; };
     list.addEventListener("input", upd); list.addEventListener("change", upd);
+    list.addEventListener("click", e=>{ const v=e.target.closest("[data-bview]"); if(!v || !BT) return; const i=+v.closest("[data-bi]").dataset.bi, r=BT.rows[i]; if(!r?.beleg) return;
+      const ready=!["wait","read"].includes(r.st);
+      showBeleg(r.beleg, { title:r.d.lieferant||r.name, fields: ready ? r.d : null, focus: ready && !(r.d.brutto>0) ? "brutto" : null,
+        onEdit:(q,v)=>{ r.d[q]=v; r.check.delete(q); },
+        onClose:()=>{ if(!BT) return; btRender(i); } }); });
     $("#btSave").onclick=btSave;
     const tok=BT.tok; btProcess(tok);
     // Sheet geschlossen → Verarbeitung stoppen
