@@ -348,6 +348,14 @@ textarea.input{resize:vertical;line-height:1.45}
 .field.gemtest{gap:12px;justify-content:flex-start}
 #cGemRes{font-size:13.5px;color:var(--muted);flex:1;min-width:0;text-align:left}
 #cGemRes.good{color:var(--green);font-weight:600} #cGemRes.bad{color:var(--red);font-weight:600}
+.gemsteps{border-top:1px solid var(--line);padding:10px 14px;display:flex;flex-direction:column;gap:8px}
+.gemsteps[hidden]{display:none}
+.gemsteps div{display:flex;gap:10px;align-items:flex-start}
+.gemsteps i{font-style:normal;font-weight:800;width:18px;flex:none;text-align:center}
+.gemsteps .ok i{color:var(--green)} .gemsteps .bad i{color:var(--red)}
+.gemsteps span{display:flex;flex-direction:column;min-width:0}
+.gemsteps b{font-size:14px;font-weight:600;overflow-wrap:anywhere}
+.gemsteps small{font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
 .seg.ocrok{box-shadow:0 0 0 2px color-mix(in srgb,var(--hi) 45%,transparent)}
 .kuhint svg{width:18px;height:18px;flex:none;margin-top:1px;color:var(--blue)}
 .kuhint i{font-style:normal;color:var(--muted)}
