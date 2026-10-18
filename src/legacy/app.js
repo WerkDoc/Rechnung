@@ -174,14 +174,20 @@ export function startApp(){
     else if(HOST_THEME) root.setAttribute("data-theme", HOST_THEME); else root.removeAttribute("data-theme");
   }
   function setTheme(t){ try{ localStorage.setItem("rm-theme", t); }catch(e){} applyTheme(t); render(); }
+  function ensureOwnLogo(){
+    // Früher war das RepairMobile-Logo Standard für alle. Jetzt nur noch im RepairMobile-Konto – einmalig fest eingetragen.
+    const f=S.firma; if(f.logo || f.logoMig || !/repair\s*mobile/i.test(f.name||"")) return;
+    queueMicrotask(()=>{ if(!S.firma.logo && !S.firma.logoMig) setFirma({logo:BRAND_LOGO, logoMig:1}); });
+  }
   function applyBranding(){
+    ensureOwnLogo();
     const a = ACCENTS[S.firma.akzent] || ACCENTS.repair; const st=document.documentElement.style;
     st.setProperty("--accent-l", a.c); st.setProperty("--accent-d", a.d);
     st.setProperty("--accent-fg-l", "#ffffff"); st.setProperty("--accent-fg-d", a.fd);
     st.setProperty("--doc-accent", a.c); st.setProperty("--tab-on", a.bar);
-    const img=$("#hLogo"), src=S.firma.logo || BRAND_LOGO; if(img.getAttribute("src")!==src) img.src=src;
   }
-  const docLogo = () => S.firma.logo || BRAND_LOGO;
+  // Belege zeigen nur das eigene Logo der Firma – ohne Logo steht dort der Firmenname.
+  const docLogo = () => S.firma.logo || "";
   const pdfLayout = () => LAYOUTS[S.firma.pdfLayout] ? S.firma.pdfLayout : "modern";
 
   /* ---------- derived ---------- */
@@ -904,7 +910,7 @@ export function startApp(){
   }
   function paperHtml(r){
     const D=docParts(r), {f,c,t,T,X}=D, lay=pdfLayout(), e=esc, br=a=>a.map(esc).join("<br>");
-    const logo=`<img class="logo" src="${docLogo()}" alt="">`;
+    const logo = docLogo() ? `<img class="logo" src="${docLogo()}" alt="">` : `<div class="logo logotxt">${e(f.name||"Ihr Firmenname")}</div>`;
     const contact=`<b>${e(f.name)}</b><br>${br(D.firm)}${f.tel?`<br>Tel. ${e(f.tel)}`:""}${f.mail?`<br>${e(f.mail)}`:""}`;
     const meta=`<div class="meta2">${D.meta.map(([a,b])=>`<b>${e(a)}:</b><span>${e(b)}</span>`).join("")}</div>`;
     const nrHtml = r.nr?e(r.nr):`<span class="draft">${e(shownNr(r))}</span>`;
@@ -1276,9 +1282,9 @@ export function startApp(){
     openSheet("Firmendaten", `
       <p class="help">Diese Daten erscheinen auf Ihren Rechnungen, Angeboten und PDFs.</p>
       <div class="group"><span class="glabel">Firma</span><div class="box">${fld("cName","Firmenname",f.name,"RepairMobile")}${fld("cStr","Straße",f.strasse,"Musterstraße 1")}<div class="two">${fld("cPlz","PLZ",f.plz,"12345")}${fld("cOrt","Ort",f.ort,"Musterstadt")}</div>${fld("cTel","Telefon",f.tel,"+49 …")}${fld("cMail","E-Mail",f.mail,"info@…")}${fld("cAnsp","Ansprechpartner",f.ansprechpartner,"Vor- und Nachname")}</div></div>
-      <div class="group"><span class="glabel">Logo</span><div class="box"><div class="logoprev" id="lPrev"><img src="${logo||BRAND_LOGO}" alt="Logo"><span style="color:var(--muted);font-size:13px" id="lInfo">${logo?"Eigenes Logo":"Standard: RepairMobile-Logo"}</span></div>
+      <div class="group"><span class="glabel">Logo</span><div class="box"><div class="logoprev" id="lPrev"><img src="${logo||""}" alt="Logo" ${logo?"":"hidden"}><span style="color:var(--muted);font-size:13px" id="lInfo">${logo?"Eigenes Logo":"Kein Logo – auf den Belegen steht dann Ihr Firmenname"}</span></div>
         <div class="field"><label for="cLogo">Neues Logo</label><input type="file" id="cLogo" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="text-align:left"></div>
-        ${logo?`<div class="field"><button type="button" class="btn ghost sm" id="cLogoDel">Zum Standard-Logo zurück</button></div>`:""}</div>
+        ${logo?`<div class="field"><button type="button" class="btn ghost sm" id="cLogoDel">Logo entfernen</button></div>`:""}</div>
         <p class="help">PNG oder JPG. Weiße Ränder werden automatisch abgeschnitten, damit das Logo oben links auf dem Beleg so groß wie möglich und unverzerrt erscheint.</p></div>
       <div class="group"><span class="glabel">Bankverbindung</span><div class="box">${fld("cBank","Bank",f.bank,"z. B. Sparkasse")}${fld("cIban","IBAN",f.iban,"DE00 0000 0000 0000 0000 00","mono")}${fld("cBic","BIC",f.bic,"optional","mono")}</div></div>
       <div class="group"><span class="glabel">Steuer</span><div class="box">${fld("cStnr","Steuernummer",f.stnr,"123/456/78901","mono")}${fld("cUst","USt-IdNr.",f.ustid,"optional","mono")}
@@ -1307,7 +1313,7 @@ export function startApp(){
     const nrUpd=()=>{ const f2={...S.firma, ...readNrForm()};
       $("#nrPrev").innerHTML=[["Auftrag",nextJobNrFor(f2)],["Rechnung",nextNr("rechnung",f2)],["Angebot",nextNr("angebot",f2)],["KVA",nextNr("kva",f2)]].map(([a,b])=>`<i>${a}</i><b>${esc(b)}</b>`).join(""); };
     ["cPreJob","cPreRe","cPreAn","cPreKv"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
-    $("#cLogo").onchange=e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>prepareLogo(rd.result, out=>{ logo=out; $("#lPrev img").src=logo; $("#lInfo").textContent="Neues Logo – zum Übernehmen „Speichern“ tippen"; }); rd.readAsDataURL(file); };
+    $("#cLogo").onchange=e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>prepareLogo(rd.result, out=>{ logo=out; $("#lPrev img").hidden=false; $("#lPrev img").src=logo; $("#lInfo").textContent="Neues Logo – zum Übernehmen „Speichern“ tippen"; }); rd.readAsDataURL(file); };
     $("#cGemEye").onclick=()=>{ const i=$("#cGemini"); i.type = i.type==="password" ? "text" : "password"; };
     $("#cGemTest").onclick=async()=>{ const out=$("#cGemRes"), box=$("#cGemSteps"), btn=$("#cGemTest"), key=val("cGemini");
       if(!key){ out.className="bad"; out.textContent="Bitte zuerst einen Key eintragen"; return; }
@@ -1316,7 +1322,7 @@ export function startApp(){
       const t=await geminiDiagnose(key, val("cGemModel"), draw); if(!$("#cGemRes")) return; btn.disabled=false;
       out.className=t.ok?"good":"bad"; out.textContent = t.ok ? `✓ Funktioniert (${t.model})` : "✕ Fehlgeschlagen – Details unten";
       if(t.models?.length) $("#gemModels").innerHTML=t.models.map(m=>`<option value="${esc(m)}">`).join(""); };
-    const ld=$("#cLogoDel"); if(ld) ld.onclick=()=>{ logo=""; $("#lPrev img").src=BRAND_LOGO; $("#lInfo").textContent="Standard: RepairMobile-Logo"; ld.remove(); };
+    const ld=$("#cLogoDel"); if(ld) ld.onclick=()=>{ logo=""; const im=$("#lPrev img"); im.hidden=true; im.removeAttribute("src"); $("#lInfo").textContent="Logo wird entfernt – zum Übernehmen „Speichern“ tippen"; ld.remove(); };
   }
 
   /* ---------- Beispiel ---------- */
@@ -2579,7 +2585,8 @@ export function startApp(){
     AUTH_VIEW=view; let el=$("#auth");
     if(!el){ document.body.insertAdjacentHTML("beforeend", `<div id="auth" class="auth" role="dialog" aria-modal="true" aria-labelledby="authTitle"></div>`); el=$("#auth"); }
     el.hidden=false; document.documentElement.classList.add("auth-open");
-    const logo=`<div class="au-brand"><div class="au-logo"><img src="${BRAND_LOGO}" alt="RepairMobile"></div><h1>WerkDoc <span>by RM</span></h1><p>Einfach. Smart. Digital.</p></div>`;
+    const logo="";
+    const brand=`<div class="au-brand"><h1>WerkDoc<span>by RM</span></h1><p>Einfach. Smart. Digital.</p></div>`;
     const pw=(id,ph,lbl="Passwort",auto="current-password")=>`<div class="au-f"><div class="au-l"><label for="${id}">${lbl}</label><button type="button" class="au-show" data-pw="${id}">Anzeigen</button></div><input id="${id}" type="password" autocomplete="${auto}" placeholder="${ph}"></div>`;
     const fld=(id,lbl,type="text",ph="",auto="")=>`<div class="au-f"><label for="${id}">${lbl}</label><input id="${id}" type="${type}" placeholder="${ph}" ${auto?`autocomplete="${auto}"`:""} ${type==="email"?'inputmode="email" autocapitalize="off" spellcheck="false"':""}></div>`;
     const V={
@@ -2605,13 +2612,27 @@ export function startApp(){
       mail:`${logo}<div class="au-card"><div class="au-ok">✉︎</div><h2 id="authTitle">Fast geschafft!</h2><p class="au-sub">${opt.text||""}</p>
         <button class="au-btn" type="button" data-av="login">Zur Anmeldung</button></div>`
     };
-    el.innerHTML=`<div class="au-wrap">${V[view]}</div>`;
-    if(opt.msg) authMsg(opt.msg, opt.kind||"err");
-    if(opt.mail && $("#auMail")) $("#auMail").value=opt.mail;
+    const slot=$("#auSlot", el), soft=!!slot && !reducedMotion() && !!slot.animate;
+    const fill=()=>{
+      if(!$("#auSlot", el)) el.innerHTML=`<div class="au-wrap">${brand}<div class="au-slot" id="auSlot"></div></div>`;
+      $("#auSlot", el).innerHTML=V[view];
+      if(opt.msg) authMsg(opt.msg, opt.kind||"err");
+      if(opt.mail && $("#auMail")) $("#auMail").value=opt.mail;
+      const f=$("#auForm"); if(f) f.onsubmit=e=>{ e.preventDefault(); authSubmit(); };
+    };
+    // Sanftes Überblenden (wie „Bewegung reduzieren“ auf dem iPhone): alte Karte blendet aus, neue ein – ohne Wegschieben
+    if(soft){
+      const card=slot.firstElementChild, h0=slot.offsetHeight;
+      const out=card ? card.animate([{opacity:1},{opacity:0}], {duration:150, easing:"ease-out", fill:"forwards"}) : null;
+      const swap=()=>{ fill(); const nc=$("#auSlot", el).firstElementChild, h1=$("#auSlot", el).offsetHeight;
+        if(el.scrollTop>0) el.scrollTo({top:0, behavior:"smooth"});
+        $("#auSlot", el).animate([{height:h0+"px"},{height:h1+"px"}], {duration:280, easing:"cubic-bezier(.25,.8,.25,1)"});
+        nc?.animate([{opacity:0},{opacity:1}], {duration:260, delay:40, easing:"ease-out", fill:"backwards"}); };
+      if(out) out.onfinish=swap; else swap();
+    } else fill();
     el.onclick=e=>{ const v=e.target.closest("[data-av]"); if(v){ const m=$("#auMail")?.value; showAuth(v.dataset.av, {mail:m}); return; }
       const s=e.target.closest("[data-pw]"); if(s){ const i=$("#"+s.dataset.pw); i.type=i.type==="password"?"text":"password"; s.textContent=i.type==="password"?"Anzeigen":"Verbergen"; }
       if(e.target.id==="auSkip"){ CLOUD.skip=true; hideAuth(); toast("Vorschau ohne Anmeldung"); } };
-    const f=$("#auForm"); if(f) f.onsubmit=e=>{ e.preventDefault(); authSubmit(); };
     setTimeout(()=>{ const first=$("#auForm input"); if(first && !first.value && matchMedia("(pointer:fine)").matches) first.focus(); }, 200);
   }
   function hideAuth(){ const el=$("#auth"); if(el){ el.hidden=true; el.innerHTML=""; } document.documentElement.classList.remove("auth-open"); }
