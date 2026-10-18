@@ -1,7 +1,7 @@
 {
-  "name": "RepairMobile Werkbank",
-  "short_name": "Werkbank",
-  "description": "Aufträge, Kalender, Kunden und Rechnungen für RepairMobile",
+  "name": "WerkDoc by RM",
+  "short_name": "WerkDoc",
+  "description": "Einfach. Smart. Digital. – Aufträge, Kalender, Kunden, Rechnungen und Ausgaben",
   "lang": "de",
   "start_url": "./",
   "scope": "./",

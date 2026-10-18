@@ -1,6 +1,6 @@
 // RepairMobile Werkbank – Service Worker
 // Hält die App offline verfügbar. Jede neue Version bekommt einen eigenen Speicher; alte Dateien werden gelöscht.
-const CACHE = "werkbank-20261017224924";
+const CACHE = "werkbank-20261018124236";
 const CORE = ["./", "./index.html", "./manifest.webmanifest", "./apple-touch-icon.png", "./icons/icon-192.png"];
 
 self.addEventListener("install", (e) => {
