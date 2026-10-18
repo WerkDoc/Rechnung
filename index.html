@@ -45,7 +45,9 @@
 /*splash*/
 .splash{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;padding-bottom:6vh;cursor:pointer;
   background:radial-gradient(120% 70% at 50% 40%, #173659 0%, #0e2442 55%, #091a31 100%);overflow:hidden;
+  box-shadow:0 0 0 100vmax #091a31;           /* iOS-Web-App: deckt auch Statusleiste & Home-Balken-Bereich ab */
   transition:opacity .5s cubic-bezier(.4,0,.2,1), transform .6s cubic-bezier(.6,0,.2,1)}
+html:has(#splash),html:has(#splash) body{background:#091a31}
 .splash.out{opacity:0;transform:translateY(-7%);pointer-events:none}
 /* feines Netz im Hintergrund */
 .sp-net{position:absolute;inset:0;width:100%;height:100%;opacity:0;animation:spFade 1.6s ease-out 2.6s forwards}
