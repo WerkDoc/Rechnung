@@ -2,12 +2,15 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { jsPDF } from "jspdf";
 import JSZip from "jszip";
+import { createClient } from "@supabase/supabase-js";
 import App from "./App.jsx";
 import "./styles.css";
 
 // PDF- und ZIP-Erzeugung erwarten diese global (wie vorher über das CDN).
 window.jspdf = { jsPDF };
 window.JSZip = JSZip;
+// Supabase (Anmeldung & Cloud) ist fest eingebaut – funktioniert damit auch offline beim App-Start.
+window.supabase = { createClient };
 
 // Läuft die App vom Home-Bildschirm? Dann Klasse setzen (für Statusleiste & Abstände).
 const standalone = window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
