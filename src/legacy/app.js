@@ -139,7 +139,7 @@ export function startApp(){
     if(mode==="db"){ try{ await dbRefs[coll].doc(id).delete(); }catch(e){ toast("Löschen fehlgeschlagen"); } }
   }
   async function saveFirma(f){
-    f._upd=Date.now(); S.firma=f; lsSave(); render(); cloudQueue("firma", "main", f);
+    f._upd=Date.now(); S.firma=f; lsSave(); render(); cloudQueue("firma", "main", f); if(typeof gemKeyRemember==="function") gemKeyRemember();
     if(mode==="db"){ try{ await dbRefs.firma.set(f); }catch(e){ toast("Firmendaten nicht gespeichert – Logo evtl. zu groß"); } }
   }
   const setFirma = patch => saveFirma({...S.firma, ...patch});
@@ -176,6 +176,7 @@ export function startApp(){
   function setTheme(t){ try{ localStorage.setItem("rm-theme", t); }catch(e){} applyTheme(t); render(); }
   function ensureOwnLogo(){
     // Früher war das RepairMobile-Logo Standard für alle. Jetzt nur noch im RepairMobile-Konto – einmalig fest eingetragen.
+    if(typeof CLOUD!=="undefined" && CLOUD.user && !CLOUD.ready) return;   // erst nach dem Laden aus der Cloud entscheiden
     const f=S.firma; if(f.logo || f.logoMig || !/repair\s*mobile/i.test(f.name||"")) return;
     queueMicrotask(()=>{ if(!S.firma.logo && !S.firma.logoMig) setFirma({logo:BRAND_LOGO, logoMig:1}); });
   }
@@ -2418,7 +2419,7 @@ export function startApp(){
   const IS_PREVIEW = !!(window.claude && window.claude.use);       // Claude-Vorschau (hat eigenen Speicher)
   const BELEG_CLOUD_MAX = 4*1024*1024;                               // größere PDFs bleiben nur auf dem Gerät
   let sb=null, sbLoading=null, sbChan=null, pullTimer=null, pushT=null;
-  const CLOUD = { user:null, status:"aus", msg:"", last:"", pushing:false, pulling:false, off:false, skip:false };
+  const CLOUD = { user:null, status:"aus", msg:"", last:"", pushing:false, pulling:false, off:false, skip:false, ready:false };
 
   async function sbClient(){
     if(sb) return sb;
@@ -2468,6 +2469,7 @@ export function startApp(){
   /* --- Änderungen vormerken & hochladen --- */
   function cloudQueue(coll, id, data, deleted=false){
     if(!cloudOn() || !id) return;
+    if(coll==="firma" && !CLOUD.ready) return;            // Schutz: vor dem ersten Laden nichts über die Cloud-Firmendaten schreiben
     const o=obLoad(), upd=Date.now();
     let d = deleted ? null : (data ? JSON.parse(JSON.stringify(data)) : null);
     if(d && coll==="beleg" && (d.data||"").length>BELEG_CLOUD_MAX) return;   // zu groß → nur lokal
@@ -2544,6 +2546,12 @@ export function startApp(){
     }catch(e){}
   }
 
+  /* --- Gemini-Key: Kopie je Konto auf dem Gerät, falls die Cloud-Firmendaten ihn (noch) nicht haben --- */
+  function gemKeyRemember(){ if(CLOUD.user && S.firma.geminiApiKey) lsSet("wb-gemkey-"+CLOUD.user.id, S.firma.geminiApiKey); }
+  function gemKeyRestore(uid){
+    const k=lsGet("wb-gemkey-"+uid, ""); if(S.firma.geminiApiKey){ lsSet("wb-gemkey-"+uid, S.firma.geminiApiKey); return; }
+    if(k){ S.firma.geminiApiKey=k; setTimeout(()=>{ if(CLOUD.ready && S.firma.geminiApiKey===k) saveFirma({...S.firma}); }, 0); }
+  }
   /* --- Gerät einem Konto zuordnen (verhindert, dass Daten verschiedener Konten vermischt werden) --- */
   function localHasData(){ return COLLS.some(c=>S[c].length) || Object.keys(S.firma||{}).some(k=>!["created","_upd"].includes(k)); }
   async function wipeLocal(){
@@ -2565,20 +2573,25 @@ export function startApp(){
     CLOUD.user=user; CLOUD.off = IS_PREVIEW && mode==="db";
     hideAuth(); hideSplash();
     if(!fresh){ if(!offline) cloudSyncNow(); return; }
+    CLOUD.ready=false;
     const owner=lsGet("wb-owner", null);
     if(owner && owner!==user.id){ await wipeLocal(); lsSet("wb-lastpull-"+user.id, null); }
     const adopt = !owner && localHasData();             // vorhandene Daten auf diesem Gerät dem Konto übergeben
     lsSet("wb-owner", user.id);
-    const md=user.user_metadata||{};
-    if(!S.firma.name && md.firma) S.firma.name=md.firma;
-    if(!S.firma.ansprechpartner && md.name) S.firma.ansprechpartner=md.name;
-    if(!S.firma.mail && user.email) S.firma.mail=user.email;
-    lsSave(); render();
-    if(CLOUD.off) { setCloud("aus"); return; }
+    const fillGaps=()=>{                                  // nur leere Felder aus dem Registrierungsprofil ergänzen (lokal, ohne Upload)
+      const md=user.user_metadata||{};
+      if(!S.firma.name && md.firma) S.firma.name=md.firma;
+      if(!S.firma.ansprechpartner && md.name) S.firma.ansprechpartner=md.name;
+      if(!S.firma.mail && user.email) S.firma.mail=user.email;
+      gemKeyRestore(user.id);
+      CLOUD.ready=true; lsSave(); render();
+    };
+    if(CLOUD.off){ fillGaps(); setCloud("aus"); return; }
     if(adopt) cloudQueueAll();
-    if(offline){ setCloud("offline"); return; }
-    try{ await sbClient(); }catch(e){ setCloud("err", sbErrMsg(e)); return; }
+    if(offline){ fillGaps(); setCloud("offline"); return; }
+    try{ await sbClient(); }catch(e){ fillGaps(); setCloud("err", sbErrMsg(e)); return; }
     await cloudPull(!!adopt || !lsGet("wb-lastpull-"+user.id, null));
+    fillGaps();
     await cloudPush();
     if(adopt) toast("Deine Daten werden jetzt in die Cloud übertragen");
     cloudRealtime();
@@ -2703,7 +2716,7 @@ export function startApp(){
       try{ const c=await sbClient(); await c.auth.signOut({ scope:"local" }); }catch(e){}
       try{ localStorage.removeItem(SB_STORE); }catch(e){}
       lsSet(obKey(), null); lsSet("wb-owner", null); if(CLOUD.user) lsSet("wb-lastpull-"+CLOUD.user.id, null);
-      CLOUD.user=null; await wipeLocal(); LOGGING_OUT=false; UI.view="auftraege";
+      CLOUD.user=null; CLOUD.ready=false; await wipeLocal(); LOGGING_OUT=false; UI.view="auftraege";
       showAuth("login", { msg:"Du wurdest abgemeldet.", kind:"ok" });
   }
   async function logout(){
