@@ -2397,6 +2397,15 @@ export function startApp(){
     toast(fail ? `${out.length-fail} von ${out.length} gespeichert – ${fail} fehlgeschlagen` : `${out.length} Ausgabe${out.length===1?"":"n"} gespeichert · ${eur(sum)}`);
   }
 
+  /* ---------- Ladebildschirm (Splash) ---------- */
+  let splashGone=false;
+  function hideSplash(){
+    if(splashGone) return; splashGone=true;
+    const sp=document.getElementById("splash"); if(!sp) return;
+    const wait=Math.max(0, 1250-performance.now());          // Einblende-Animation in Ruhe zu Ende spielen
+    setTimeout(()=>{ sp.classList.add("out"); setTimeout(()=>sp.remove(), 700); }, wait);
+  }
+  setTimeout(hideSplash, 5000);                                  // Sicherheitsnetz, falls die Prüfung hängt
   /* ---------- WerkDoc Cloud: Supabase-Anmeldung & Synchronisierung ---------- */
   // Offline-first: Alles wird sofort lokal gespeichert. Änderungen landen in einer Warteschlange („Outbox“)
   // und werden hochgeladen, sobald eine Verbindung besteht. Andere Geräte holen sich die Änderungen ab.
@@ -2554,7 +2563,7 @@ export function startApp(){
   async function onAuthed(user, {offline=false}={}){
     const fresh = CLOUD.user?.id!==user.id;
     CLOUD.user=user; CLOUD.off = IS_PREVIEW && mode==="db";
-    hideAuth();
+    hideAuth(); hideSplash();
     if(!fresh){ if(!offline) cloudSyncNow(); return; }
     const owner=lsGet("wb-owner", null);
     if(owner && owner!==user.id){ await wipeLocal(); lsSet("wb-lastpull-"+user.id, null); }
@@ -2582,7 +2591,7 @@ export function startApp(){
   /* --- Anmeldebildschirm --- */
   let AUTH_VIEW="login", LOGGING_OUT=false;
   function showAuth(view="login", opt={}){
-    AUTH_VIEW=view; let el=$("#auth");
+    AUTH_VIEW=view; hideSplash(); let el=$("#auth");
     if(!el){ document.body.insertAdjacentHTML("beforeend", `<div id="auth" class="auth" role="dialog" aria-modal="true" aria-labelledby="authTitle"></div>`); el=$("#auth"); }
     el.hidden=false; document.documentElement.classList.add("auth-open");
     const logo="";
