@@ -3350,6 +3350,7 @@ export function startApp(){
   (()=>{ let last=window.scrollY, ticking=false; const bar=$("#tabs");
     const upd=()=>{ const y=window.scrollY, d=y-last;
       if(y<24) bar.classList.remove("compact");
+      else if(d>6) bar.classList.add("compact");
       else if(d<-6) bar.classList.remove("compact");
       if(Math.abs(d)>6||y<24) last=y; ticking=false; };
     window.addEventListener("scroll", ()=>{ if(!ticking){ ticking=true; requestAnimationFrame(upd); } }, {passive:true});
