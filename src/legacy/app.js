@@ -129,17 +129,17 @@ export function startApp(){
   const LS_KEY = "repairmobile-werkbank-v1";
   function lsLoad(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw) Object.assign(S, JSON.parse(raw)); }catch(e){} for(const c of COLLS) if(!Array.isArray(S[c])) S[c]=[]; }
   function lsSave(){ if(mode!=="local") return; try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){} }
-  function upsertLocal(coll, obj){ const arr=S[coll]; const i=arr.findIndex(x=>x.id===obj.id); if(i>=0) arr[i]=obj; else arr.push(obj); }
+  function upsertLocal(coll, obj){ obj._upd=Date.now(); const arr=S[coll]; const i=arr.findIndex(x=>x.id===obj.id); if(i>=0) arr[i]=obj; else arr.push(obj); if(typeof cloudQueue==="function") cloudQueue(coll, obj.id, obj); }
   async function save(coll, obj){
     upsertLocal(coll, obj); lsSave(); render();
     if(mode==="db"){ const {id, ...body}=obj; try{ await dbRefs[coll].doc(id).set(body); }catch(e){ toast(e && e.code==="quota_exceeded" ? "Speicher voll – bitte alte Einträge löschen" : "Konnte nicht speichern, bitte erneut versuchen"); } }
   }
   async function remove(coll, id){
-    S[coll]=S[coll].filter(x=>x.id!==id); lsSave(); render();
+    S[coll]=S[coll].filter(x=>x.id!==id); lsSave(); render(); cloudQueue(coll, id, null, true);
     if(mode==="db"){ try{ await dbRefs[coll].doc(id).delete(); }catch(e){ toast("Löschen fehlgeschlagen"); } }
   }
   async function saveFirma(f){
-    S.firma=f; lsSave(); render();
+    f._upd=Date.now(); S.firma=f; lsSave(); render(); cloudQueue("firma", "main", f);
     if(mode==="db"){ try{ await dbRefs.firma.set(f); }catch(e){ toast("Firmendaten nicht gespeichert – Logo evtl. zu groß"); } }
   }
   const setFirma = patch => saveFirma({...S.firma, ...patch});
@@ -407,7 +407,7 @@ export function startApp(){
     const invs=S.rechnungen.filter(r=>dTyp(r)==="rechnung" && r.nr && dStatus(r)!=="entwurf");
     const years=[...new Set([String(new Date().getFullYear()), ...invs.map(r=>(r.datum||"").slice(0,4)).filter(Boolean), ...S.ausgaben.map(x=>(x.datum||"").slice(0,4)).filter(Boolean)])].sort().reverse();
     const csvCount=csvRows().length, ausCount=ausRowsFor(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : "")).length;
-    return `<div class="group"><span class="glabel">Firma &amp; Rechnung</span>
+    return `${accountGroup()}<div class="group"><span class="glabel">Firma &amp; Rechnung</span>
       <button class="card" data-act="firma"><div class="row"><h3>Firmendaten, Bank, Logo</h3><span class="pill ${filled===5?"s-bezahlt":"s-versendet"}">${filled===5?"Vollständig":filled+" von 5"}</span></div>
       <div class="meta">${f.name?esc(f.name)+(f.ort?" · "+esc(f.ort):""):"Erscheinen im Kopf und Fuß jeder Rechnung."}</div>
       <div class="meta">${f.kleinunternehmer?"Kleinunternehmer (§ 19 UStG) – ohne MwSt":(f.netto?"Preise netto, zzgl. 19 % MwSt":"Preise inkl. 19 % MwSt")} · Zahlungsziel ${f.ziel??14} Tage${f.geminiApiKey?" · KI-Belegerkennung an":""}</div></button></div>
@@ -507,6 +507,9 @@ export function startApp(){
       if(a==="exportKunden") exportMenu("kunden"); if(a==="exportTeile") exportMenu("teile");
       if(a==="pdfsample") openViewer(sampleDoc(), `<b>Beispiel-Blatt · ${LAYOUTS[pdfLayout()].l}</b><span>So sehen Ihre Belege mit den aktuellen Einstellungen aus.</span>`);
       if(a==="csvExport") exportCsv();
+      if(a==="logout"){ logout(); return; } if(a==="logoutYes"){ logoutNow(); return; } if(a==="logoutNo"){ LOGOUT_ASK=null; render(); return; }
+      if(a==="syncNow"){ cloudSyncNow().then(()=>toast(CLOUD.status==="err"?CLOUD.msg:"Synchronisiert")); return; }
+      if(a==="login"){ CLOUD.skip=false; showAuth("login"); return; }
       if(a==="newAus") newAusgabe(); if(a==="multiAus") pickMulti(); if(a==="ausExport") ausExportMenu();
       if(a==="csvAus") exportAusCsv(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : ""));
       if(a==="paket") exportPaket(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : ""), true);
@@ -1373,7 +1376,7 @@ export function startApp(){
     return `<div class="selbar"><button class="btn ghost sm" data-act="selAll">${all?"Keine":"Alle"} auswählen</button><span class="n">${n} ausgewählt</span><button class="btn danger sm" data-act="selDel" ${n?"":"disabled style='opacity:.45'"}>Löschen</button></div>`;
   }
   async function removeMany(coll, ids){
-    const set=new Set(ids); S[coll]=S[coll].filter(x=>!set.has(x.id)); lsSave(); render();
+    const set=new Set(ids); S[coll]=S[coll].filter(x=>!set.has(x.id)); lsSave(); render(); ids.forEach(id=>cloudQueue(coll, id, null, true));
     if(mode==="db"){ for(const id of ids){ try{ await dbRefs[coll].doc(id).delete(); }catch(e){ toast("Löschen teilweise fehlgeschlagen – bitte erneut versuchen"); break; } } }
   }
 
@@ -1907,13 +1910,14 @@ export function startApp(){
     open(){ if(this._p) return this._p; this._p=new Promise(res=>{ try{ const r=indexedDB.open("rm-belege",1); r.onupgradeneeded=()=>r.result.createObjectStore("b"); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null); }catch(e){ res(null); } }); return this._p; },
     async tx(mode, fn){ const db=await this.open(); if(!db) return null; return new Promise(res=>{ try{ const t=db.transaction("b",mode); const rq=fn(t.objectStore("b")); t.oncomplete=()=>res(rq?.result ?? null); t.onerror=t.onabort=()=>res(null); }catch(e){ res(null); } }); },
     cache:new Map(),
-    async put(id, rec){ this.cache.set(id,rec); await this.tx("readwrite", s=>s.put(rec,id));
+    async put(id, rec){ this.cache.set(id,rec); await this.tx("readwrite", s=>s.put(rec,id)); cloudQueue("beleg", id, {typ:rec.typ, data:rec.data, name:rec.name, size:rec.size});
       if(mode==="db" && dbRefs?.bilder && rec.data.length<=DB_IMG_MAX){ try{ await dbRefs.bilder.doc(id).set(rec); return true; }catch(e){ return false; } } return mode!=="db"; },
     async get(id){ if(this.cache.has(id)) return this.cache.get(id);
       let rec=await this.tx("readonly", s=>s.get(id));
       if(!rec && mode==="db" && dbRefs?.bilder){ try{ const s=await dbRefs.bilder.doc(id).get(); if(s.exists){ rec=s.data(); this.tx("readwrite", st=>st.put(rec,id)); } }catch(e){} }
+      if(!rec && cloudOn()){ rec=await cloudBeleg(id); if(rec) this.tx("readwrite", st=>st.put(rec,id)); }
       if(rec) this.cache.set(id,rec); return rec||null; },
-    async del(id){ this.cache.delete(id); await this.tx("readwrite", s=>s.delete(id)); if(mode==="db" && dbRefs?.bilder){ try{ await dbRefs.bilder.doc(id).delete(); }catch(e){} } }
+    async del(id){ this.cache.delete(id); await this.tx("readwrite", s=>s.delete(id)); cloudQueue("beleg", id, null, true); if(mode==="db" && dbRefs?.bilder){ try{ await dbRefs.bilder.doc(id).delete(); }catch(e){} } }
   };
 
   async function compressImage(file){
@@ -2387,6 +2391,309 @@ export function startApp(){
     toast(fail ? `${out.length-fail} von ${out.length} gespeichert – ${fail} fehlgeschlagen` : `${out.length} Ausgabe${out.length===1?"":"n"} gespeichert · ${eur(sum)}`);
   }
 
+  /* ---------- WerkDoc Cloud: Supabase-Anmeldung & Synchronisierung ---------- */
+  // Offline-first: Alles wird sofort lokal gespeichert. Änderungen landen in einer Warteschlange („Outbox“)
+  // und werden hochgeladen, sobald eine Verbindung besteht. Andere Geräte holen sich die Änderungen ab.
+  const SB_URL = "https://zalniuqiberpnzgbbufk.supabase.co";
+  const SB_KEY = "sb_publishable_9BQH108_KtPssfLocODpUQ_Cy3r2lko";   // öffentlicher Schlüssel – Schutz über Row Level Security
+  const SB_CDN = ["https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.50.0/dist/umd/supabase.js",
+                  "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"];
+  const SB_TABLE = "wb_records";
+  const SB_STORE = "sb-zalniuqiberpnzgbbufk-auth-token";
+  const IS_PREVIEW = !!(window.claude && window.claude.use);       // Claude-Vorschau (hat eigenen Speicher)
+  const BELEG_CLOUD_MAX = 4*1024*1024;                               // größere PDFs bleiben nur auf dem Gerät
+  let sb=null, sbLoading=null, sbChan=null, pullTimer=null, pushT=null;
+  const CLOUD = { user:null, status:"aus", msg:"", last:"", pushing:false, pulling:false, off:false, skip:false };
+
+  async function sbClient(){
+    if(sb) return sb;
+    if(!sbLoading) sbLoading=(async()=>{
+      if(!window.supabase?.createClient) for(const u of SB_CDN){ try{ await withTimeout(loadScript(u), 15000, "Supabase lädt nicht"); }catch(e){} if(window.supabase?.createClient) break; }
+      if(!window.supabase?.createClient) throw new Error("sdk");
+      sb=window.supabase.createClient(SB_URL, SB_KEY, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true, storageKey:SB_STORE } });
+      return sb;
+    })().catch(e=>{ sbLoading=null; throw e; });
+    return sbLoading;
+  }
+  function storedUser(){ try{ const j=JSON.parse(localStorage.getItem(SB_STORE)||"null"); return j?.user || j?.currentSession?.user || null; }catch(e){ return null; } }
+  const lsGet=(k,d)=>{ try{ const v=localStorage.getItem(k); return v==null?d:JSON.parse(v); }catch(e){ return d; } };
+  const lsSet=(k,v)=>{ try{ v==null ? localStorage.removeItem(k) : localStorage.setItem(k, JSON.stringify(v)); }catch(e){} };
+  const obKey = () => "wb-outbox-"+(CLOUD.user?.id||"x");
+  const obLoad = () => lsGet(obKey(), {});
+  const obSave = o => lsSet(obKey(), o);
+  const obCount = () => Object.keys(obLoad()).length;
+  const cloudOn = () => !!CLOUD.user && !CLOUD.off;
+
+  function sbErrMsg(e){
+    const m=String(e?.message||e?.error_description||e||"");
+    if(/Invalid login credentials/i.test(m)) return "E-Mail oder Passwort ist falsch.";
+    if(/Email not confirmed/i.test(m)) return "Bitte bestätige zuerst deine E-Mail – den Link findest du in deinem Postfach.";
+    if(/already registered|already been registered|User already exists/i.test(m)) return "Für diese E-Mail gibt es schon einen Zugang. Bitte anmelden.";
+    if(/Password should be at least|weak password|password.*(short|length)/i.test(m)) return "Das Passwort ist zu kurz oder zu einfach (mindestens 8 Zeichen).";
+    if(/rate limit|For security purposes|too many/i.test(m)) return "Zu viele Versuche – bitte kurz warten und erneut versuchen.";
+    if(/invalid.*email|Unable to validate email/i.test(m)) return "Bitte eine gültige E-Mail-Adresse eingeben.";
+    if(/relation .*wb_records.* does not exist|Could not find the table|PGRST205|42P01/i.test(m)) return "Die Cloud-Tabelle fehlt noch – bitte das Setup-SQL in Supabase ausführen.";
+    if(/row-level security|permission denied|42501/i.test(m)) return "Zugriff verweigert – bitte die Sicherheitsregeln (RLS) aus dem Setup-SQL prüfen.";
+    if(/Failed to fetch|NetworkError|Load failed|network/i.test(m) || navigator.onLine===false) return "Keine Verbindung zum Server.";
+    if(m==="sdk") return "Die Anmeldung konnte nicht geladen werden (keine Verbindung?).";
+    return m || "Unbekannter Fehler";
+  }
+  function setCloud(status, msg=""){
+    CLOUD.status=status; CLOUD.msg=msg; if(status==="ok") CLOUD.last=nowStamp();
+    const el=$("#cloudState"); if(el){ el.className="cstate "+status; el.innerHTML=cloudStateHtml(); }
+  }
+  function cloudStateHtml(){
+    const n=obCount();
+    if(CLOUD.off) return `<i></i>Diese Vorschau speichert im Claude-Konto – die Cloud-Synchronisierung läuft in der installierten App.`;
+    if(navigator.onLine===false) return `<i></i>Offline – ${n?`${n} Änderung${n===1?" wird":"en werden"} später hochgeladen`:"alles lokal gespeichert"}`;
+    return ({ sync:`<i></i>Synchronisiere …`, err:`<i></i>${esc(CLOUD.msg||"Fehler")}${n?` · ${n} ausstehend`:""}`,
+      ok:`<i></i>Synchronisiert${CLOUD.last?` · ${deStamp(CLOUD.last)}`:""}${n?` · ${n} ausstehend`:""}` })[CLOUD.status] || `<i></i>${n?`${n} Änderung${n===1?"":"en"} ausstehend`:"Bereit"}`;
+  }
+
+  /* --- Änderungen vormerken & hochladen --- */
+  function cloudQueue(coll, id, data, deleted=false){
+    if(!cloudOn() || !id) return;
+    const o=obLoad(), upd=Date.now();
+    let d = deleted ? null : (data ? JSON.parse(JSON.stringify(data)) : null);
+    if(d && coll==="beleg" && (d.data||"").length>BELEG_CLOUD_MAX) return;   // zu groß → nur lokal
+    o[coll+"/"+id]={coll, id, data:d, deleted, upd}; obSave(o);
+    schedulePush();
+  }
+  function schedulePush(ms=1500){ clearTimeout(pushT); pushT=setTimeout(cloudPush, ms); }
+  async function cloudPush(){
+    if(!cloudOn() || CLOUD.pushing) return;
+    if(navigator.onLine===false){ setCloud("offline"); return; }
+    const items=Object.values(obLoad()); if(!items.length){ setCloud("ok"); return; }
+    CLOUD.pushing=true; setCloud("sync");
+    try{
+      const c=await sbClient(); const uid=CLOUD.user.id;
+      const small=items.filter(x=>x.coll!=="beleg"), big=items.filter(x=>x.coll==="beleg");
+      const groups=[]; for(let i=0;i<small.length;i+=200) groups.push(small.slice(i,i+200)); big.forEach(x=>groups.push([x]));
+      for(const g of groups){
+        const { error }=await c.from(SB_TABLE).upsert(g.map(x=>({ user_id:uid, coll:x.coll, id:x.id, data:x.data, deleted:x.deleted, upd:x.upd })), { onConflict:"user_id,coll,id" });
+        if(error) throw error;
+        const cur=obLoad(); for(const x of g){ const k=x.coll+"/"+x.id; if(cur[k] && cur[k].upd===x.upd) delete cur[k]; } obSave(cur);
+      }
+      setCloud("ok");
+    }catch(e){ setCloud("err", sbErrMsg(e)); setTimeout(()=>schedulePush(0), 30000); }
+    finally{ CLOUD.pushing=false; }
+    if(obCount() && CLOUD.status==="ok") schedulePush(300);
+  }
+
+  /* --- Änderungen anderer Geräte holen --- */
+  function applyRemote(r){
+    const pend=obLoad()[r.coll+"/"+r.id]; if(pend && pend.upd>=r.upd) return false;   // eigene neuere Änderung wartet noch
+    if(r.coll==="firma"){
+      if(r.deleted || !r.data || (S.firma._upd||0)>r.upd) return false;
+      S.firma={...r.data, _upd:r.upd}; return true;
+    }
+    if(r.coll==="beleg"){ if(r.deleted){ BILD.cache.delete(r.id); BILD.tx("readwrite", s=>s.delete(r.id)); } return false; }
+    if(!COLLS.includes(r.coll)) return false;
+    const arr=S[r.coll], i=arr.findIndex(x=>x.id===r.id), loc=i>=0?arr[i]:null;
+    if(loc && (loc._upd||0)>r.upd) return false;
+    if(r.deleted){ if(i>=0){ arr.splice(i,1); return true; } return false; }
+    const obj={...r.data, id:r.id, _upd:r.upd};
+    if(i>=0) arr[i]=obj; else arr.push(obj); return true;
+  }
+  async function cloudPull(full=false){
+    if(!cloudOn() || CLOUD.pulling || navigator.onLine===false) return;
+    CLOUD.pulling=true;
+    const lk="wb-lastpull-"+CLOUD.user.id; let since = full ? null : lsGet(lk, null), changed=0;
+    try{
+      const c=await sbClient();
+      for(let page=0; page<50; page++){
+        let q=c.from(SB_TABLE).select("coll,id,data,deleted,upd,updated_at").neq("coll","beleg").order("updated_at",{ascending:true}).limit(500);
+        if(since) q=q.gt("updated_at", since);
+        const { data, error }=await q; if(error) throw error;
+        for(const r of data) if(applyRemote(r)) changed++;
+        if(data.length) since=data[data.length-1].updated_at;
+        if(data.length<500) break;
+      }
+      if(since) lsSet(lk, since);
+      if(changed){ lsSave(); render(); }
+      if(CLOUD.status!=="err") setCloud(obCount()?"sync":"ok");
+    }catch(e){ setCloud("err", sbErrMsg(e)); }
+    finally{ CLOUD.pulling=false; }
+    return changed;
+  }
+  async function cloudBeleg(id){
+    if(!cloudOn() || navigator.onLine===false) return null;
+    try{ const c=await sbClient(); const { data }=await c.from(SB_TABLE).select("data,deleted").eq("coll","beleg").eq("id",id).maybeSingle();
+      return data && !data.deleted ? data.data : null; }catch(e){ return null; }
+  }
+  async function cloudSyncNow(){ await cloudPush(); await cloudPull(); if(!obCount() && CLOUD.status!=="err") setCloud("ok"); }
+  function cloudRealtime(){
+    try{ if(sbChan) sb.removeChannel(sbChan);
+      sbChan=sb.channel("wb-"+CLOUD.user.id).on("postgres_changes", { event:"*", schema:"public", table:SB_TABLE, filter:`user_id=eq.${CLOUD.user.id}` },
+        p=>{ const r=p.new && p.new.coll ? p.new : null; if(r && r.coll!=="beleg" && applyRemote(r)){ lsSave(); render(); } }).subscribe();
+    }catch(e){}
+  }
+
+  /* --- Gerät einem Konto zuordnen (verhindert, dass Daten verschiedener Konten vermischt werden) --- */
+  function localHasData(){ return COLLS.some(c=>S[c].length) || Object.keys(S.firma||{}).some(k=>!["created","_upd"].includes(k)); }
+  async function wipeLocal(){
+    for(const c of COLLS) S[c]=[]; S.firma={};
+    try{ localStorage.removeItem(LS_KEY); localStorage.removeItem("rm-recent"); }catch(e){}
+    BILD.cache.clear(); await BILD.tx("readwrite", s=>s.clear());
+    render();
+  }
+  function cloudQueueAll(){
+    const o=obLoad(), upd=Date.now();
+    for(const c of COLLS) for(const x of S[c]) o[c+"/"+x.id]={coll:c, id:x.id, data:JSON.parse(JSON.stringify(x)), deleted:false, upd:x._upd||upd};
+    if(Object.keys(S.firma||{}).length) o["firma/main"]={coll:"firma", id:"main", data:JSON.parse(JSON.stringify(S.firma)), deleted:false, upd:S.firma._upd||upd};
+    obSave(o);
+    // Belegbilder nachreichen
+    (async()=>{ for(const x of S.ausgaben) if(x.bild){ const b=await BILD.get(x.id); if(b) cloudQueue("beleg", x.id, {typ:b.typ, data:b.data, name:b.name, size:b.size}); } })();
+  }
+  async function onAuthed(user, {offline=false}={}){
+    const fresh = CLOUD.user?.id!==user.id;
+    CLOUD.user=user; CLOUD.off = IS_PREVIEW && mode==="db";
+    hideAuth();
+    if(!fresh){ if(!offline) cloudSyncNow(); return; }
+    const owner=lsGet("wb-owner", null);
+    if(owner && owner!==user.id){ await wipeLocal(); lsSet("wb-lastpull-"+user.id, null); }
+    const adopt = !owner && localHasData();             // vorhandene Daten auf diesem Gerät dem Konto übergeben
+    lsSet("wb-owner", user.id);
+    const md=user.user_metadata||{};
+    if(!S.firma.name && md.firma) S.firma.name=md.firma;
+    if(!S.firma.ansprechpartner && md.name) S.firma.ansprechpartner=md.name;
+    if(!S.firma.mail && user.email) S.firma.mail=user.email;
+    lsSave(); render();
+    if(CLOUD.off) { setCloud("aus"); return; }
+    if(adopt) cloudQueueAll();
+    if(offline){ setCloud("offline"); return; }
+    try{ await sbClient(); }catch(e){ setCloud("err", sbErrMsg(e)); return; }
+    await cloudPull(!!adopt || !lsGet("wb-lastpull-"+user.id, null));
+    await cloudPush();
+    if(adopt) toast("Deine Daten werden jetzt in die Cloud übertragen");
+    cloudRealtime();
+    clearInterval(pullTimer); pullTimer=setInterval(()=>{ if(document.visibilityState==="visible") cloudSyncNow(); }, 120000);
+  }
+  document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="visible" && cloudOn()) cloudSyncNow(); });
+  window.addEventListener("online", ()=>{ if(cloudOn()) cloudSyncNow(); else setCloud(CLOUD.status); });
+  window.addEventListener("offline", ()=>setCloud("offline"));
+
+  /* --- Anmeldebildschirm --- */
+  let AUTH_VIEW="login", LOGGING_OUT=false;
+  function showAuth(view="login", opt={}){
+    AUTH_VIEW=view; let el=$("#auth");
+    if(!el){ document.body.insertAdjacentHTML("beforeend", `<div id="auth" class="auth" role="dialog" aria-modal="true" aria-labelledby="authTitle"></div>`); el=$("#auth"); }
+    el.hidden=false; document.documentElement.classList.add("auth-open");
+    const logo=`<div class="au-brand"><div class="au-logo"><img src="${BRAND_LOGO}" alt="RepairMobile"></div><h1>WerkDoc <span>by RM</span></h1><p>Einfach. Smart. Digital.</p></div>`;
+    const pw=(id,ph,lbl="Passwort",auto="current-password")=>`<div class="au-f"><div class="au-l"><label for="${id}">${lbl}</label><button type="button" class="au-show" data-pw="${id}">Anzeigen</button></div><input id="${id}" type="password" autocomplete="${auto}" placeholder="${ph}"></div>`;
+    const fld=(id,lbl,type="text",ph="",auto="")=>`<div class="au-f"><label for="${id}">${lbl}</label><input id="${id}" type="${type}" placeholder="${ph}" ${auto?`autocomplete="${auto}"`:""} ${type==="email"?'inputmode="email" autocapitalize="off" spellcheck="false"':""}></div>`;
+    const V={
+      login:`${logo}<form class="au-card" id="auForm" novalidate><h2 id="authTitle">Willkommen zurück</h2><p class="au-sub">Melde dich mit deinem WerkDoc-Zugang an.</p>
+        ${fld("auMail","E-Mail","email","name@firma.de","username")}${pw("auPw","Passwort")}
+        <div class="au-msg" id="auMsg" hidden></div>
+        <button class="au-btn" type="submit" id="auGo">Sicher anmelden</button>
+        <button class="au-btn2" type="button" data-av="register">Neue Firma registrieren</button>
+        <button class="au-link" type="button" data-av="reset">Passwort vergessen?</button>
+        <p class="au-foot">Deine Daten liegen geschützt in deinem Konto und bleiben auch offline auf diesem Gerät nutzbar.</p>
+        ${IS_PREVIEW?`<button class="au-link muted" type="button" id="auSkip">Ohne Anmeldung testen (nur diese Vorschau)</button>`:""}</form>`,
+      register:`${logo}<form class="au-card" id="auForm" novalidate><h2 id="authTitle">Neue Firma registrieren</h2><p class="au-sub">Lege deinen WerkDoc-Zugang an. Danach bekommst du eine E-Mail zur Bestätigung.</p>
+        ${fld("auFirma","Firmenname","text","z. B. RepairMobile","organization")}${fld("auName","Vor- und Nachname","text","","name")}${fld("auMail","E-Mail","email","name@firma.de","email")}${pw("auPw","mindestens 8 Zeichen","Passwort","new-password")}
+        <div class="au-msg" id="auMsg" hidden></div>
+        <button class="au-btn" type="submit" id="auGo">Registrierung absenden</button>
+        <button class="au-link" type="button" data-av="login">Ich habe schon einen Zugang – anmelden</button></form>`,
+      reset:`${logo}<form class="au-card" id="auForm" novalidate><h2 id="authTitle">Passwort zurücksetzen</h2><p class="au-sub">Wir schicken dir einen Link, mit dem du ein neues Passwort festlegst.</p>
+        ${fld("auMail","E-Mail","email","name@firma.de","username")}<div class="au-msg" id="auMsg" hidden></div>
+        <button class="au-btn" type="submit" id="auGo">Link senden</button><button class="au-link" type="button" data-av="login">Zurück zur Anmeldung</button></form>`,
+      newpw:`${logo}<form class="au-card" id="auForm" novalidate><h2 id="authTitle">Neues Passwort</h2><p class="au-sub">Lege jetzt dein neues Passwort fest.</p>
+        ${pw("auPw","mindestens 8 Zeichen","Neues Passwort","new-password")}<div class="au-msg" id="auMsg" hidden></div>
+        <button class="au-btn" type="submit" id="auGo">Passwort speichern</button></form>`,
+      mail:`${logo}<div class="au-card"><div class="au-ok">✉︎</div><h2 id="authTitle">Fast geschafft!</h2><p class="au-sub">${opt.text||""}</p>
+        <button class="au-btn" type="button" data-av="login">Zur Anmeldung</button></div>`
+    };
+    el.innerHTML=`<div class="au-wrap">${V[view]}</div>`;
+    if(opt.msg) authMsg(opt.msg, opt.kind||"err");
+    if(opt.mail && $("#auMail")) $("#auMail").value=opt.mail;
+    el.onclick=e=>{ const v=e.target.closest("[data-av]"); if(v){ const m=$("#auMail")?.value; showAuth(v.dataset.av, {mail:m}); return; }
+      const s=e.target.closest("[data-pw]"); if(s){ const i=$("#"+s.dataset.pw); i.type=i.type==="password"?"text":"password"; s.textContent=i.type==="password"?"Anzeigen":"Verbergen"; }
+      if(e.target.id==="auSkip"){ CLOUD.skip=true; hideAuth(); toast("Vorschau ohne Anmeldung"); } };
+    const f=$("#auForm"); if(f) f.onsubmit=e=>{ e.preventDefault(); authSubmit(); };
+    setTimeout(()=>{ const first=$("#auForm input"); if(first && !first.value && matchMedia("(pointer:fine)").matches) first.focus(); }, 200);
+  }
+  function hideAuth(){ const el=$("#auth"); if(el){ el.hidden=true; el.innerHTML=""; } document.documentElement.classList.remove("auth-open"); }
+  function authMsg(t, kind="err"){ const m=$("#auMsg"); if(!m) return; m.hidden=!t; m.className="au-msg "+kind; m.textContent=t||""; }
+  async function authSubmit(){
+    const go=$("#auGo"), label=go.textContent; const busy=b=>{ go.disabled=b; go.innerHTML=b?`<span class="ocrspin"></span>`:label; };
+    const mail=val("auMail").toLowerCase(), pw=$("#auPw")?.value||"";
+    authMsg("");
+    if(AUTH_VIEW!=="newpw" && !/^\S+@\S+\.\S+$/.test(mail)) return authMsg("Bitte eine gültige E-Mail-Adresse eingeben.");
+    if(AUTH_VIEW!=="reset" && !pw) return authMsg("Bitte das Passwort eingeben.");
+    if((AUTH_VIEW==="register"||AUTH_VIEW==="newpw") && pw.length<8) return authMsg("Das Passwort braucht mindestens 8 Zeichen.");
+    if(AUTH_VIEW==="register" && !val("auFirma")) return authMsg("Bitte den Firmennamen eintragen.");
+    busy(true);
+    try{
+      const c=await sbClient(); const redirect=location.origin+location.pathname;
+      if(AUTH_VIEW==="login"){
+        const { data, error }=await c.auth.signInWithPassword({ email:mail, password:pw }); if(error) throw error;
+        await onAuthed(data.user); toast("Angemeldet");
+      } else if(AUTH_VIEW==="register"){
+        const { data, error }=await c.auth.signUp({ email:mail, password:pw, options:{ emailRedirectTo:redirect, data:{ firma:val("auFirma"), name:val("auName") } } });
+        if(error) throw error;
+        if(data.user && Array.isArray(data.user.identities) && !data.user.identities.length) throw new Error("User already registered");
+        if(data.session){ await onAuthed(data.user); toast("Willkommen bei WerkDoc!"); }
+        else showAuth("mail", { text:`Wir haben dir eine E-Mail an <b>${esc(mail)}</b> geschickt. Tippe auf den Link darin, um deinen Zugang zu bestätigen – danach kannst du dich hier anmelden.` });
+      } else if(AUTH_VIEW==="reset"){
+        const { error }=await c.auth.resetPasswordForEmail(mail, { redirectTo:redirect }); if(error) throw error;
+        showAuth("mail", { text:`Falls es zu <b>${esc(mail)}</b> einen Zugang gibt, ist ein Link zum Zurücksetzen unterwegs.` });
+      } else if(AUTH_VIEW==="newpw"){
+        const { data, error }=await c.auth.updateUser({ password:pw }); if(error) throw error;
+        await onAuthed(data.user); toast("Neues Passwort gespeichert");
+      }
+    }catch(e){ authMsg(sbErrMsg(e)); }
+    finally{ if($("#auGo")) busy(false); }
+  }
+  async function authBoot(){
+    const su=storedUser();
+    // Offline mit gespeicherter Sitzung: sofort weiterarbeiten
+    if(su && navigator.onLine===false){ onAuthed(su, {offline:true}); }
+    try{
+      const c=await sbClient();
+      c.auth.onAuthStateChange((ev, session)=>{
+        if(ev==="PASSWORD_RECOVERY"){ showAuth("newpw"); return; }
+        if(ev==="SIGNED_OUT"){ if(!LOGGING_OUT && !CLOUD.skip){ CLOUD.user=null; showAuth("login"); } return; }
+        if(session?.user && ev==="SIGNED_IN" && AUTH_VIEW!=="newpw") setTimeout(()=>onAuthed(session.user), 0);
+      });
+      const { data }=await c.auth.getSession();
+      if(/[#&](access_token|type=)/.test(location.hash)) history.replaceState(null, "", location.pathname+location.search);
+      if(data.session?.user){ if(AUTH_VIEW!=="newpw") onAuthed(data.session.user); }
+      else if(!CLOUD.user || !su) showAuth("login");
+    }catch(e){
+      if(su) onAuthed(su, {offline:true});
+      else showAuth("login", { msg:sbErrMsg(e) });
+    }
+  }
+  let LOGOUT_ASK=null;
+  async function logoutNow(){
+      LOGOUT_ASK=null; LOGGING_OUT=true; closeSheet();
+      clearInterval(pullTimer); try{ if(sbChan) sb.removeChannel(sbChan); }catch(e){}
+      try{ const c=await sbClient(); await c.auth.signOut({ scope:"local" }); }catch(e){}
+      try{ localStorage.removeItem(SB_STORE); }catch(e){}
+      lsSet(obKey(), null); lsSet("wb-owner", null); if(CLOUD.user) lsSet("wb-lastpull-"+CLOUD.user.id, null);
+      CLOUD.user=null; await wipeLocal(); LOGGING_OUT=false; UI.view="auftraege";
+      showAuth("login", { msg:"Du wurdest abgemeldet.", kind:"ok" });
+  }
+  async function logout(){
+    if(obCount()) await cloudPush();
+    const n=obCount();
+    LOGOUT_ASK = n ? `${n} Änderung${n===1?" ist":"en sind"} noch nicht in der Cloud (keine Verbindung?). Beim Abmelden gehen sie verloren. Trotzdem abmelden?`
+                   : "Abmelden? Deine Daten bleiben sicher in der Cloud und werden beim nächsten Anmelden wieder geladen.";
+    render(); requestAnimationFrame(()=>$("#grpKonto")?.scrollIntoView({block:"center", behavior:"smooth"}));
+  }
+  function accountGroup(){
+    if(!CLOUD.user) return CLOUD.skip ? `<div class="group" id="grpKonto"><span class="glabel">Konto &amp; Cloud</span><div class="card"><span style="color:var(--muted)">Vorschau ohne Anmeldung.</span><div class="btnrow"><button class="btn" data-act="login">Anmelden</button></div></div></div>` : "";
+    const u=CLOUD.user;
+    return `<div class="group" id="grpKonto"><span class="glabel">Konto &amp; Cloud</span><div class="card acct">
+      <div class="row"><span class="acav">${esc((u.user_metadata?.name||u.email||"?").trim()[0]||"?").toUpperCase()}</span><span class="acwho"><b>${esc(u.user_metadata?.name||S.firma.ansprechpartner||"Angemeldet")}</b><small>${esc(u.email||"")}</small></span></div>
+      <div class="cstate ${CLOUD.status}" id="cloudState">${cloudStateHtml()}</div>
+      ${LOGOUT_ASK?`<div class="confirm"><span>${LOGOUT_ASK}</span><div class="btnrow"><button class="btn danger" data-act="logoutYes">Ja, abmelden</button><button class="btn ghost" data-act="logoutNo">Abbrechen</button></div></div>`
+        :`<div class="btnrow">${CLOUD.off?"":`<button class="btn ghost" data-act="syncNow">${ico.sync} Jetzt synchronisieren</button>`}<button class="btn danger" data-act="logout">Abmelden</button></div>`}
+    </div></div>`;
+  }
+
   /* ---------- Kontakte & Produkte: Import / Export ---------- */
   const LANDS={de:"Deutschland",at:"Österreich",ch:"Schweiz",pt:"Portugal",it:"Italien",fr:"Frankreich",nl:"Niederlande",pl:"Polen",es:"Spanien",tr:"Türkei"};
   function landCode(l){ const v=String(l||"").trim(); if(/^[a-z]{2}$/i.test(v)) return v.toUpperCase(); const hit=Object.entries(LANDS).find(([c,n])=>n.toLowerCase()===v.toLowerCase()); return hit?hit[0].toUpperCase():v; }
@@ -2837,9 +3144,12 @@ export function startApp(){
     if(!data) return;
     UI.pendingImport = null;
     S.firma = {...data.firma, geminiApiKey: data.firma.geminiApiKey || S.firma.geminiApiKey || "", geminiModel: data.firma.geminiModel || S.firma.geminiModel || ""};
+    const before={}; for(const c of COLLS) before[c]=S[c].map(x=>x.id);
     for(const c of COLLS) S[c] = data[c].map(o=>({...o}));
     try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){}
     render();
+    if(cloudOn()){ for(const c of COLLS){ const keep=new Set(S[c].map(x=>x.id)); before[c].filter(id=>!keep.has(id)).forEach(id=>cloudQueue(c, id, null, true)); }
+      const now=Date.now(); for(const c of COLLS) S[c].forEach(x=>x._upd=now); S.firma._upd=now; cloudQueueAll(); }
     for(const [id,b] of Object.entries(data.belegBilder||{})) if(b && typeof b.data==="string" && /^data:/.test(b.data)) await BILD.put(id, {typ:b.typ, data:b.data, name:b.name, size:b.size});
     if(mode==="db"){
       toast("Wiederherstellen läuft …");
@@ -3000,7 +3310,7 @@ export function startApp(){
 
   /* ---------- start ---------- */
   document.addEventListener("touchstart", ()=>{}, {passive:true});
-  applyTheme(); lsLoad(); render(); connectDb();
+  applyTheme(); lsLoad(); render(); connectDb(); authBoot();
   // first visit: show the short tour for Aufträge once
-  setTimeout(()=>{ let seen=false; try{ seen=!!localStorage.getItem("rm-tour-auftraege"); }catch(e){} if(!seen && UI.view==="auftraege" && $("#sheet").hidden) startTour("auftraege"); }, 900);
+  setTimeout(()=>{ let seen=false; try{ seen=!!localStorage.getItem("rm-tour-auftraege"); }catch(e){} if(!seen && UI.view==="auftraege" && $("#sheet").hidden && !$("#auth:not([hidden])")) startTour("auftraege"); }, 900);
 }
