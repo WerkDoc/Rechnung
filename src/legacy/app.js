@@ -2399,14 +2399,20 @@ export function startApp(){
   }
 
   /* ---------- Ladebildschirm (Splash) ---------- */
-  let splashGone=false;
-  function hideSplash(){
+  let splashGone=false, splashReq=false;
+  const SPLASH_MIN=4000;                                          // so lange läuft die Intro-Animation (Karte → Icon → Schriftzug → Lichtreflex)
+  function splashOut(){
     if(splashGone) return; splashGone=true;
     const sp=document.getElementById("splash"); if(!sp) return;
-    const wait=Math.max(0, 1250-performance.now());          // Einblende-Animation in Ruhe zu Ende spielen
-    setTimeout(()=>{ sp.classList.add("out"); setTimeout(()=>sp.remove(), 700); }, wait);
+    sp.classList.add("out"); setTimeout(()=>sp.remove(), 700);
   }
-  setTimeout(hideSplash, 5000);                                  // Sicherheitsnetz, falls die Prüfung hängt
+  function hideSplash(){
+    if(splashReq) return; splashReq=true;
+    const fast=matchMedia("(prefers-reduced-motion: reduce)").matches;
+    setTimeout(splashOut, Math.max(0, (fast?900:SPLASH_MIN)-performance.now()));
+  }
+  document.getElementById("splash")?.addEventListener("click", ()=>{ if(splashReq) splashOut(); });   // Tippen überspringt, sobald die App bereit ist
+  setTimeout(hideSplash, 7000);                                  // Sicherheitsnetz, falls die Prüfung hängt
   /* ---------- WerkDoc Cloud: Supabase-Anmeldung & Synchronisierung ---------- */
   // Offline-first: Alles wird sofort lokal gespeichert. Änderungen landen in einer Warteschlange („Outbox“)
   // und werden hochgeladen, sobald eine Verbindung besteht. Andere Geräte holen sich die Änderungen ab.
