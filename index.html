@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <!-- viewport-fit=cover: App nutzt den ganzen Bildschirm inkl. Notch / Dynamic Island -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>RepairMobile Werkbank</title>
-    <meta name="description" content="Aufträge, Kalender, Kunden und Rechnungen für RepairMobile" />
+    <title>WerkDoc by RM</title>
+    <meta name="description" content="WerkDoc by RM – Einfach. Smart. Digital." />
 
     <!-- Farbe der Statusleiste / Browserleiste -->
     <meta name="theme-color" content="#0c2340" />
@@ -14,8 +14,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="apple-mobile-web-app-title" content="Werkbank" />
-    <meta name="application-name" content="Werkbank" />
+    <meta name="apple-mobile-web-app-title" content="WerkDoc" />
+    <meta name="application-name" content="WerkDoc" />
     <meta name="format-detection" content="telephone=no" />
 
     <!-- App-Icons -->
@@ -40,8 +40,36 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" />
+    <!-- Ladebildschirm: sofort sichtbar, bis Anmeldung & Daten geprüft sind -->
+    <style>html{background:#0c2340}
+/*splash*/
+.splash{position:fixed;inset:0;z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px;padding-bottom:8vh;
+  background:radial-gradient(120% 70% at 50% 38%, #183a63 0%, #0c2340 55%, #081a30 100%);overflow:hidden;
+  transition:opacity .5s cubic-bezier(.4,0,.2,1), transform .6s cubic-bezier(.6,0,.2,1)}
+.splash.out{opacity:0;transform:translateY(-7%);pointer-events:none}
+.sp-card{position:relative;background:#fff;border-radius:28px;padding:30px 40px 25px;display:flex;flex-direction:column;align-items:center;gap:10px;overflow:hidden;
+  box-shadow:0 24px 70px rgba(0,0,0,.38);
+  opacity:0;transform:scale(.9);animation:spIn .8s cubic-bezier(.2,.9,.25,1) .08s forwards, spGlow 2.4s ease-in-out 1s infinite}
+.splash.out .sp-card{transform:scale(.96) translateY(-10px);transition:transform .55s cubic-bezier(.6,0,.2,1)}
+.sp-card::after{content:"";position:absolute;inset:-20% -60%;background:linear-gradient(105deg,transparent 38%,rgba(41,170,225,.10) 43%,rgba(41,170,225,.30) 48%,rgba(255,255,255,.9) 50%,rgba(41,170,225,.30) 52%,rgba(41,170,225,.10) 57%,transparent 62%);mix-blend-mode:multiply;
+  transform:translateX(-70%);animation:spSheen 2.4s cubic-bezier(.45,0,.25,1) 1s infinite;pointer-events:none}
+.sp-mark{font-family:"Bricolage Grotesque","Avenir Next",-apple-system,system-ui,sans-serif;font-weight:800;font-size:50px;letter-spacing:-.035em;color:#0c2340;line-height:1;display:flex;align-items:baseline;gap:7px;white-space:nowrap;position:relative;z-index:1}
+.sp-mark span{font-size:.46em;letter-spacing:-.01em;color:#e31b23}
+.sp-slogan{font-family:"Figtree",-apple-system,system-ui,sans-serif;font-size:14.5px;font-weight:600;letter-spacing:.08em;color:#566377;position:relative;z-index:1}
+.sp-dots{display:flex;gap:8px;opacity:0;animation:spFade .5s ease-out .9s forwards}
+.sp-dots i{width:7px;height:7px;border-radius:50%;background:#29aae1;opacity:.35;animation:spDot 1.2s ease-in-out infinite}
+.sp-dots i:nth-child(2){animation-delay:.16s} .sp-dots i:nth-child(3){animation-delay:.32s}
+@keyframes spIn{to{opacity:1;transform:scale(1)}}
+@keyframes spGlow{0%,100%{box-shadow:0 24px 70px rgba(0,0,0,.38),0 0 0 0 rgba(41,170,225,0)}50%{box-shadow:0 24px 70px rgba(0,0,0,.38),0 0 34px 6px rgba(41,170,225,.38)}}
+@keyframes spSheen{0%{transform:translateX(-70%)}60%,100%{transform:translateX(70%)}}
+@keyframes spFade{to{opacity:1}}
+@keyframes spDot{0%,100%{opacity:.3;transform:scale(.85)}50%{opacity:1;transform:scale(1.15)}}
+@media (prefers-reduced-motion: reduce){.sp-card{animation:spFade .4s ease-out forwards;transform:none}.sp-card::after,.sp-dots i{animation:none}.splash.out{transform:none}.splash.out .sp-card{transform:none}}
+/*/splash*/
+    </style>
   </head>
   <body>
+    <!--splash--><div id="splash" class="splash" aria-hidden="true"><div class="sp-card"><div class="sp-mark">WerkDoc<span>by RM</span></div><div class="sp-slogan">Einfach. Smart. Digital.</div></div><div class="sp-dots"><i></i><i></i><i></i></div></div><!--/splash-->
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
