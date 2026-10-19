@@ -234,7 +234,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="49";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="50";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -295,7 +295,7 @@ export function startApp(){
   /* Wischen nach links/rechts → nächster/vorheriger Tab.
      Robust für iPhone: lauscht früh (Capture) auf Touch- UND Pointer-Eingaben, nur eindeutige Ausschlüsse. */
   (()=>{ let sw=null, lastFire=0;
-    const BLOCK="input,textarea,select,[contenteditable],.chips,.nodrag,#tabs,.top,.sheet,.picker,.viewer,.menu,.auth,.bfull,.tour,.selbar,.fab,.scrim,.splash";
+    const BLOCK="input,textarea,select,[contenteditable],.chips,.nodrag,#tabs,.top,.sheet,.picker,.viewer,.menu,.auth,.bfull,.tour,.selbar,.fab,.scrim,.splash,.sigpad";
     const open = id => { const e=document.getElementById(id); return !!e && !e.hidden; };
     const start = (x,y,el,src) => {
       sw=null; if(UI.sel || open("sheet") || open("picker") || open("viewer") || open("tour")) return;
@@ -370,17 +370,42 @@ export function startApp(){
     const chips = [["offen","Offen"],["fertig","Abholbereit"],["abgeholt","Abgeholt"],["alle","Alle"]]
       .map(([k,l])=>`<button class="chip" data-f="${k}" aria-pressed="${UI.filter===k}">${l} (${cnt(k)})</button>`).join("");
     if(!S.auftraege.length) return `${hintHtml("auftraege","<b>Ihre Aufträge.</b> Jedes Gerät, das Sie annehmen, wird ein Auftrag – mit Termin, Fehler, Ersatzteilen und am Ende der Rechnung.")}
-      <div class="empty">${bigIcon()}<h2>Noch keine Aufträge</h2><p>Legen Sie das erste Gerät an, z. B. „iPhone 13 Pro – Display“. Termin und Reparaturdatum landen automatisch im Kalender.</p>
+      <div class="empty">${emptyIcon("job")}<h2>Noch keine Aufträge</h2><p>Legen Sie das erste Gerät an, z. B. „iPhone 13 Pro – Display“. Termin und Reparaturdatum landen automatisch im Kalender.</p>
       <div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newjob">+ Ersten Auftrag anlegen</button><button class="btn ghost" data-act="examples">Beispiel ansehen</button></div></div>`;
     let html = `${hintHtml("auftraege","<b>Ihre Aufträge.</b> Tippen Sie auf einen Auftrag, um den Status zu ändern, Teile einzutragen oder Rechnung und Kostenvoranschlag zu erstellen.")}
       <label class="search">${ico.search}<input id="q" type="search" placeholder="Gerät, Kunde, IMEI suchen…" value="${esc(UI.q)}"></label>
       <div class="chips">${chips}</div>`;
-    if(!list.length) return html + `<div class="empty"><p>Keine Aufträge in dieser Ansicht.</p></div>`;
+    if(!list.length) return html + `<div class="empty">${emptyIcon("job",1)}<p>Keine Aufträge in dieser Ansicht.</p></div>`;
     let last=null;
     for(const a of list){ const d=(a.termin||a.created||"").slice(0,10); if(d!==last){ html+=`<div class="daylabel">${d?longDate(d):"Ohne Termin"}</div>`; last=d; } html+=jobCard(a); }
     return html;
   }
 
+  /* ---------- animierte Leer-Ansichten (je Tab eigenes Motiv) ---------- */
+  let EMI_N=0;
+  function emptyIcon(kind, sm){
+    const c=`emi${sm?" sm":""}`, id="emi"+(++EMI_N);
+    if(kind==="job") return `<svg class="${c}" viewBox="0 0 96 96" aria-hidden="true"><ellipse class="em-sh" cx="48" cy="88" rx="24" ry="3.5"/><g class="em-float">
+      <g transform="translate(40 42) scale(2.25)"><g class="em-spin"><path class="em-gear" d="M0.00 -7.60 L1.95 -9.81 L3.83 -9.24 L4.22 -6.32 L5.37 -5.37 L8.31 -5.56 L9.24 -3.83 L7.45 -1.48 L7.60 0.00 L9.81 1.95 L9.24 3.83 L6.32 4.22 L5.37 5.37 L5.56 8.31 L3.83 9.24 L1.48 7.45 L0.00 7.60 L-1.95 9.81 L-3.83 9.24 L-4.22 6.32 L-5.37 5.37 L-8.31 5.56 L-9.24 3.83 L-7.45 1.48 L-7.60 0.00 L-9.81 -1.95 L-9.24 -3.83 L-6.32 -4.22 L-5.37 -5.37 L-5.56 -8.31 L-3.83 -9.24 L-1.48 -7.45 Z M3.40 0.00 A3.4 3.4 0 1 0 -3.40 0.00 A3.4 3.4 0 1 0 3.40 0.00 Z"/></g></g>
+      <g transform="translate(70 22) scale(1.05)"><g class="em-spin rev"><path class="em-gear b" d="M0.00 -7.60 L1.95 -9.81 L3.83 -9.24 L4.22 -6.32 L5.37 -5.37 L8.31 -5.56 L9.24 -3.83 L7.45 -1.48 L7.60 0.00 L9.81 1.95 L9.24 3.83 L6.32 4.22 L5.37 5.37 L5.56 8.31 L3.83 9.24 L1.48 7.45 L0.00 7.60 L-1.95 9.81 L-3.83 9.24 L-4.22 6.32 L-5.37 5.37 L-8.31 5.56 L-9.24 3.83 L-7.45 1.48 L-7.60 0.00 L-9.81 -1.95 L-9.24 -3.83 L-6.32 -4.22 L-5.37 -5.37 L-5.56 -8.31 L-3.83 -9.24 L-1.48 -7.45 Z M3.40 0.00 A3.4 3.4 0 1 0 -3.40 0.00 A3.4 3.4 0 1 0 3.40 0.00 Z"/></g></g>
+      <g transform="translate(24 74) rotate(-38) scale(.82)"><g class="em-swing"><path class="em-wr" d="M4 -5H45.1A12 12 0 0 1 67.3 -4H60V4H67.3A12 12 0 0 1 45.1 5H4A5 5 0 0 1 4 -5Z"/></g></g></g></svg>`;
+    if(kind==="cal") return `<svg class="${c}" viewBox="0 0 96 96" aria-hidden="true"><ellipse class="em-sh" cx="48" cy="90" rx="24" ry="3.5"/><g class="em-float">
+      <rect class="em-page" x="18" y="16" width="56" height="58" rx="9"/>
+      <rect class="em-cal-b" x="14" y="12" width="56" height="60" rx="9"/><path class="em-cal-h" d="M23 12h38a9 9 0 0 1 9 9v6H14v-6a9 9 0 0 1 9-9z"/>
+      <rect x="24" y="6" width="5" height="12" rx="2.5" fill="var(--fg)"/><rect x="55" y="6" width="5" height="12" rx="2.5" fill="var(--fg)"/>
+      ${[0,1,2].map(r=>[0,1,2,3].map(k=>`<rect class="em-cal-d${r===1&&k===2?" on":""}" x="${22+k*11}" y="${36+r*10}" width="7" height="6" rx="2"/>`).join("")).join("")}
+      <circle class="em-clock" cx="68" cy="66" r="17"/><line class="em-hand h" x1="68" y1="66" x2="68" y2="57" style="transform-origin:68px 66px"/><line class="em-hand m" x1="68" y1="66" x2="78" y2="66" style="transform-origin:68px 66px"/><circle cx="68" cy="66" r="2.4" fill="var(--fg)"/></g></svg>`;
+    if(kind==="doc") return `<svg class="${c}" viewBox="0 0 96 96" aria-hidden="true"><defs><clipPath id="${id}c"><path d="M22 8h36l16 16v60a6 6 0 0 1-6 6H22a6 6 0 0 1-6-6V14a6 6 0 0 1 6-6z"/></clipPath>
+      <linearGradient id="${id}g" x1="0" x2="1"><stop offset="0" stop-color="#8fd0ff" stop-opacity="0"/><stop offset=".45" stop-color="#8fd0ff" stop-opacity=".55"/><stop offset=".5" stop-color="#ffffff" stop-opacity=".95"/><stop offset=".55" stop-color="#8fd0ff" stop-opacity=".55"/><stop offset="1" stop-color="#8fd0ff" stop-opacity="0"/></linearGradient></defs>
+      <ellipse class="em-sh" cx="46" cy="92" rx="24" ry="3"/><g class="em-float">
+      <path class="em-doc" d="M22 8h36l16 16v60a6 6 0 0 1-6 6H22a6 6 0 0 1-6-6V14a6 6 0 0 1 6-6z"/><path d="M58 8v12a4 4 0 0 0 4 4h12" fill="none" stroke="var(--faint)" stroke-width="2.4"/>
+      <path class="em-line a" d="M27 32h20"/><path class="em-line" d="M27 44h36M27 54h30M27 64h22"/>
+      <g clip-path="url(#${id}c)"><rect class="em-shine" x="-20" y="-10" width="26" height="120" fill="url(#${id}g)" style="transform-origin:0 0"/></g>
+      <g class="em-glow"><circle class="em-ok" cx="68" cy="74" r="14"/><path class="em-okc" d="M61.5 74.5l4.6 4.4 8.6-9.4"/></g></g></svg>`;
+    return `<svg class="${c}" viewBox="0 0 96 96" aria-hidden="true"><circle class="em-ring" cx="48" cy="46" r="34"/><circle class="em-ring d2" cx="48" cy="46" r="34"/><ellipse class="em-sh" cx="48" cy="90" rx="22" ry="3"/>
+      <g class="em-f2"><circle class="em-u b" cx="66" cy="34" r="8.5"/><path class="em-u b" d="M52 64c1.5-9 7-14 14-14s12.5 5 14 14z"/></g>
+      <g class="em-float"><circle class="em-u" cx="44" cy="32" r="12"/><path class="em-u" d="M22 74c2-13 10.5-21 22-21s20 8 22 21z"/></g></svg>`;
+  }
   function bigIcon(){ return `<svg width="64" height="64" viewBox="0 0 64 64" fill="none"><rect x="16" y="6" width="32" height="52" rx="7" fill="var(--grey-soft)" stroke="var(--faint)" stroke-width="2"/><path d="M28 50h8" stroke="var(--faint)" stroke-width="3" stroke-linecap="round"/><path d="M8 30h22l-3 8H5z" fill="var(--accent)"/><path d="M34 14l-6 36" stroke="var(--hi)" stroke-width="5" stroke-linecap="round"/></svg>`; }
 
   let hidden = {}; try{ hidden = JSON.parse(localStorage.getItem("rm-hints")||"{}"); }catch(e){}
@@ -423,17 +448,25 @@ export function startApp(){
       <div class="stats"><div class="stat"><b class="num">${ev.filter(e=>e.k==="t").length}</b><small>Termine an diesem Tag</small></div><div class="stat"><b class="num">${ev.filter(e=>e.k==="r").length}</b><small>Geräte repariert</small></div></div>
       <div id="calZoomArea" style="display:flex;flex-direction:column;gap:12px">
       ${allday.length?`<div class="group"><span class="glabel">Ganztägig</span>${allday.map(evCard).join("")}</div>`:""}
+      ${ev.length?"":`<div class="empty" style="padding:8px 16px 0">${emptyIcon("cal",1)}<p>An diesem Tag ist noch nichts eingetragen.</p></div>`}
       <div class="tline">${tl}</div>
       <button class="btn" data-act="newjobday">+ Termin an diesem Tag</button></div>`;
   }
-  function setCalZoom(z, px, py){
+  function setCalZoom(z, px, py, from){
     const order=["month","week","day"], cur=UI.calZoom||"month", dir=order.indexOf(z)-order.indexOf(cur); if(!dir) return;
-    UI.calZoom=z; if(z==="month") UI.calMonth=UI.calDay.slice(0,7);
-    render(); window.scrollTo({top:0});
-    const v=$("#main .view"); if(!v || !v.animate || reducedMotion()) return;
-    const r=v.getBoundingClientRect(); v.style.transformOrigin = px!=null ? `${px-r.left}px ${py-r.top}px` : "50% 120px";
-    v.animate([{transform:`scale(${dir>0?.86:1.12})`, opacity:.15},{transform:"none", opacity:1}], {duration:360, easing:EASE_OUT});
-    countUp(v);
+    const go=()=>{ UI.calZoom=z; if(z==="month") UI.calMonth=UI.calDay.slice(0,7); window.scrollTo(0,0); render(); };
+    const v=$("#main .view");
+    if(!v || !v.animate || reducedMotion()){ go(); return; }
+    // alte Ansicht zoomt aus der aktuellen Fingerposition weiter (kein Zurückspringen), neue gleitet nahtlos herein
+    const r=v.getBoundingClientRect(); if(px!=null) v.style.transformOrigin=`${px-r.left}px ${py-r.top}px`;
+    const s0=from?.s ?? 1, o0=from?.o ?? 1;
+    v.style.willChange="transform,opacity";
+    const out=v.animate([{transform:`scale(${s0})`, opacity:o0},{transform:`scale(${dir>0?s0*1.14:s0*.88})`, opacity:0}], {duration:120, easing:"cubic-bezier(.4,0,1,1)", fill:"forwards"});
+    v.style.transform=""; v.style.opacity="";
+    out.onfinish=()=>{ go(); const nv=$("#main .view"); if(!nv) return;
+      const nr=nv.getBoundingClientRect(); nv.style.transformOrigin = px!=null ? `${px-nr.left}px ${Math.max(0,py-nr.top)}px` : "50% 140px"; nv.style.willChange="transform,opacity";
+      const inn=nv.animate([{transform:`scale(${dir>0?.9:1.1})`, opacity:0},{transform:"none", opacity:1}], {duration:230, easing:"cubic-bezier(.2,.85,.25,1)", fill:"backwards"});
+      inn.onfinish=()=>{ nv.style.willChange=""; }; countUp(nv); };
   }
   function vKalender(){
     if(UI.calZoom==="week") return vKalWoche();
@@ -461,7 +494,7 @@ export function startApp(){
       <div class="legend"><span><i class="dot t"></i>Termin</span><span><i class="dot r"></i>Repariert</span><span><i class="dot a"></i>Abgeholt</span></div>
       <div class="daylabel">${longDate(UI.calDay)}</div>
       <div id="dayList" style="display:flex;flex-direction:column;gap:14px">${evs.length ? evs.map(evCard).join("")
-        : `<div class="card" style="align-items:flex-start"><span style="color:var(--muted)">Nichts eingetragen.</span><button class="btn sm" data-act="newjobday">+ Termin an diesem Tag</button></div>`}</div>`;
+        : `<div class="card calempty">${emptyIcon("cal",1)}<span style="color:var(--muted)">Nichts eingetragen.</span><button class="btn sm" data-act="newjobday">+ Termin an diesem Tag</button></div>`}</div>`;
   }
 
   function docCard(r){
@@ -487,11 +520,11 @@ export function startApp(){
       ? `<div class="tri"><div><small>Offen</small><b class="c-blue">${eur(sumOf(r=>["offen","versendet","ueberfaellig"].includes(dStatus(r))))}</b></div><div><small>Überfällig</small><b class="c-red">${eur(sumOf(r=>dStatus(r)==="ueberfaellig"))}</b></div><div><small>Bezahlt</small><b class="c-green">${eur(sumOf(r=>dStatus(r)==="bezahlt"))}</b></div></div>`
       : `<div class="tri"><div><small>Offen</small><b class="c-blue">${eur(sumOf(r=>["offen","versendet"].includes(dStatus(r))))}</b></div><div><small>Angenommen</small><b class="c-green">${eur(sumOf(r=>dStatus(r)==="akzeptiert"))}</b></div><div><small>Entwürfe</small><b>${all.filter(r=>dStatus(r)==="entwurf").length}</b></div></div>`;
     if(!all.length) return `${seg}${isR?hintHtml("rechnungen","<b>Rechnungen</b> erstellen Sie mit dem + oder direkt aus einem Auftrag. Firmendaten und Bankverbindung tragen Sie unter Einstellungen ein."):""}
-      <div class="empty">${bigIcon()}<h2>${isR?"Noch keine Rechnungen":"Noch keine Angebote"}</h2><p>${isR?"Tippen Sie auf +, wählen Sie Kunde und Positionen, und sehen Sie sich das Blatt vor dem Erstellen in der Vorschau an.":"Angebote und Kostenvoranschläge erstellen Sie mit dem +. Wird ein Angebot angenommen, machen Sie mit einem Tipp eine Rechnung daraus."}</p>
+      <div class="empty">${emptyIcon("doc")}<h2>${isR?"Noch keine Rechnungen":"Noch keine Angebote"}</h2><p>${isR?"Tippen Sie auf +, wählen Sie Kunde und Positionen, und sehen Sie sich das Blatt vor dem Erstellen in der Vorschau an.":"Angebote und Kostenvoranschläge erstellen Sie mit dem +. Wird ein Angebot angenommen, machen Sie mit einem Tipp eine Rechnung daraus."}</p>
       <div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newdoc">+ ${isR?"Rechnung":"Angebot"} erstellen</button>${isR?`<button class="btn ghost" data-act="importDocs">${ico.upl} Rechnungen importieren</button>`:""}</div></div>`;
     const list = UI.selVis.rechnungen = all.filter(F[UI.docFilter]);
     let html = `${seg}<div class="iobar"><span class="cnt">${all.length} ${isR?(all.length===1?"Rechnung":"Rechnungen"):(all.length===1?"Beleg":"Belege")}</span>${isR?`<button class="btn ghost sm" data-act="importDocs">${ico.upl} Importieren</button>`:""}<button class="btn ghost sm" data-act="exportDocs">${ico.dl} Exportieren ▾</button>${UI.sel?.kind==="rechnungen" ? `<button class="btn sm" data-act="selDone">Fertig</button>` : `<button class="btn ghost sm" data-act="selStart" data-kind="rechnungen">${ico.checkc} Auswählen</button>`}</div><div class="chips">${chips}</div>${tri}`, last=null;
-    if(!list.length) return html + `<div class="empty"><p>Nichts in dieser Ansicht.</p></div>`;
+    if(!list.length) return html + `<div class="empty">${emptyIcon("doc",1)}<p>Nichts in dieser Ansicht.</p></div>`;
     for(const r of list){ if(r.datum!==last){ html+=`<div class="daylabel">${r.datum?longDate(r.datum):"Ohne Datum"}</div>`; last=r.datum; } html+=docCard(r); }
     return html + selBar("rechnungen");
   }
@@ -499,10 +532,10 @@ export function startApp(){
   function vKunden(){
     const q = UI.q.trim().toLowerCase();
     const list = UI.selVis.kunden = [...S.kunden].sort((a,b)=>(a.name||"").localeCompare(b.name||"","de")).filter(k=>!q || [k.name,k.firma,k.tel,k.mail,k.ort,k.plz,kundenNr(k)].join(" ").toLowerCase().includes(q));
-    if(!S.kunden.length) return `<div class="empty">${bigIcon()}<h2>Noch keine Kunden</h2><p>Kunden legen Sie hier an, direkt beim Auftrag, oder Sie übernehmen Ihre Kontaktliste als CSV (z. B. aus sevdesk oder Excel).</p><div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newkunde">+ Kunde anlegen</button><button class="btn ghost" data-act="importKunden">${ico.upl} Kontakte importieren</button></div></div>`;
+    if(!S.kunden.length) return `<div class="empty">${emptyIcon("user")}<h2>Noch keine Kunden</h2><p>Kunden legen Sie hier an, direkt beim Auftrag, oder Sie übernehmen Ihre Kontaktliste als CSV (z. B. aus sevdesk oder Excel).</p><div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newkunde">+ Kunde anlegen</button><button class="btn ghost" data-act="importKunden">${ico.upl} Kontakte importieren</button></div></div>`;
     return `${ioBar("kunden", S.kunden.length, "Kontakt", "Kontakte")}<label class="search">${ico.search}<input id="q" type="search" placeholder="Name, Nr., Ort, Telefon suchen…" value="${esc(UI.q)}"></label>
       ${list.map(k=>{ const n=S.auftraege.filter(a=>a.kundeId===k.id).length; return pickWrap("kunden", k.id, `<div class="row"><h3><span class="mono jobnr" style="margin-right:8px">${esc(kundenNr(k))}</span>${esc(k.name)}</h3><span class="pill s-abgeholt">${n} Auftr${n===1?"ag":"äge"}</span></div>
-      <div class="meta">${k.firma&&k.firma!==k.name?`<span>${esc(k.firma)}</span>`:""}${k.tel?`<span>${ico.phone}${esc(k.tel)}</span>`:""}${k.ort?`<span>${k.land&&!/^(de|deutschland|germany)$/i.test(k.land)?esc(landCode(k.land))+"-":""}${esc(k.plz||"")} ${esc(k.ort)}</span>`:""}</div>`); }).join("")}${selBar("kunden")}`;
+      <div class="meta">${k.firma&&k.firma!==k.name?`<span>${esc(k.firma)}</span>`:""}${k.tel?`<span>${ico.phone}${esc(k.tel)}</span>`:""}${k.ort?`<span>${k.land&&!/^(de|deutschland|germany)$/i.test(k.land)?esc(landCode(k.land))+"-":""}${esc(k.plz||"")} ${esc(k.ort)}</span>`:""}</div>`); }).join("")}${selBar("kunden")}${list.length||!q?"":`<div class="empty">${emptyIcon("user",1)}<p>Kein Kunde gefunden für „${esc(UI.q.trim())}“.</p></div>`}`;
   }
 
   /* small layout thumbnails for the PDF-Design picker */
@@ -810,6 +843,7 @@ export function startApp(){
       jfCommit(obj);
       if(status==="abgeholt" && !obj.abgeholtAm) obj.abgeholtAm=today();
       save("auftraege",obj); toast(a?"Auftrag gespeichert":`Auftrag #${obj.nr} angelegt`);
+      if(!a) setTimeout(()=>openSigPad(obj.id,"annahme",{neu:true}), 420);
       if(d){ UI.calMonth=d.slice(0,7); UI.calDay=d; }
     });
     bindPos(); bindKundeSelect("a"); jfInit(a);
@@ -829,6 +863,7 @@ export function startApp(){
       <div><span class="pill s-${a.status}">${STATUS[a.status].l}</span><h2 style="font-family:var(--f-display);font-size:26px;margin:8px 0 2px;text-wrap:balance">${esc(a.geraet)}</h2>
       <div class="meta"><span>${ico.user}${esc(k?.name||"Ohne Kunde")}</span>${k?.tel?`<span>${ico.phone}<span style="user-select:all">${esc(k.tel)}</span></span>`:""}</div></div>
       ${a.fotos?.length?`<div class="group"><span class="glabel">Zustand bei Annahme</span><div class="jfgrid ro">${a.fotos.map((f,i)=>`<button class="jf" data-jfv="${f.id}" data-jfi="${i}" aria-label="Zustandsfoto ${i+1}"><span class="jfimg" data-thumb="${f.id}"></span><small>${jfStamp(f.ts)}</small></button>`).join("")}</div></div>`:""}
+      <div class="group"><span class="glabel">Unterschrift des Kunden</span><div class="sigs-box">${sigTile(a,"annahme")}${sigTile(a,"abholung")}</div></div>
       <div class="group"><span class="glabel">Status ändern</span><div class="steps">${Object.entries(STATUS).map(([s,v])=>`<button class="step a${v.n}" data-st="${s}" aria-pressed="${a.status===s}">${v.l}</button>`).join("")}</div>
       ${a.status!=="fertig"&&a.status!=="abgeholt"?`<button class="btn accent" id="doneToday">${ico.check} Heute repariert</button>`:""}</div>
       <div class="box">
@@ -850,7 +885,9 @@ export function startApp(){
         <button class="btn ghost" id="mkKva">Kostenvoranschlag</button>
         <button class="btn ghost" id="editJob">Bearbeiten</button>
       </div>`, null);
-    $$(".step").forEach(b=>b.onclick=()=>{ const s=b.dataset.st; const o={...a,status:s}; if(s==="fertig"&&!o.erledigt) o.erledigt=today(); if(s==="abgeholt"){ if(!o.erledigt) o.erledigt=today(); if(!o.abgeholtAm) o.abgeholtAm=today(); } save("auftraege",o); toast(STATUS[s].l); openJobDetail(a.id); });
+    $$(".step").forEach(b=>b.onclick=()=>{ const s=b.dataset.st; const o={...a,status:s}; if(s==="fertig"&&!o.erledigt) o.erledigt=today(); if(s==="abgeholt"){ if(!o.erledigt) o.erledigt=today(); if(!o.abgeholtAm) o.abgeholtAm=today(); } save("auftraege",o); toast(STATUS[s].l); openJobDetail(a.id);
+      if(s==="abgeholt" && a.status!=="abgeholt" && !a.sign?.abholung) setTimeout(()=>openSigPad(a.id,"abholung"), 350); });
+    $$("#sBody [data-sig]").forEach(b=>b.onclick=()=>sigTap(a.id, b.dataset.sig));
     const dt=$("#doneToday"); if(dt) dt.onclick=()=>{ save("auftraege",{...a,status:"fertig",erledigt:today()}); toast("Als repariert eingetragen"); openJobDetail(a.id); };
     $("#editJob").onclick=()=>openAuftrag(a.id);
     $$("#sBody [data-jfv]").forEach(b=>b.onclick=async()=>{ const r=await BILD.get(b.dataset.jfv); if(r) showBeleg(r,{title:`Zustand bei Annahme · Foto ${+b.dataset.jfi+1} · ${jfStamp(a.fotos[+b.dataset.jfi]?.ts)}`}); else toast("Foto nicht verfügbar"); });
@@ -1092,7 +1129,7 @@ export function startApp(){
     const sum=`<div class="sum">${c.rab?`<div><span>Summe Positionen</span><span>${eur(c.sum)}</span></div><div><span>Rabatt (${numIn(r.rabatt)} %)</span><span>− ${eur(c.rab)}</span></div>`:""}${c.p?`<div><span>Zwischensumme (netto)</span><span>${eur(c.netto)}</span></div><div><span>MwSt. (${numIn(c.p)} %)</span><span>${eur(c.mwst)}</span></div>`:""}<div class="g"><span>${c.p?"Gesamtbetrag (brutto)":"Gesamtbetrag"}</span><span>${eur(c.brutto)}</span></div></div>`;
     const note=`<div class="note">${X.klein?"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.<br>":""}${noteBody(X,r)}</div>`;
     const greet=`<div class="greet">Mit freundlichen Grüßen<b>${e(f.name||"")}</b></div>`;
-    const haft=f.haftung?`<div class="haft">${e(f.haftung).replace(/\n/g,"<br>")}</div>`:"";
+    const haft=sigPaper(r)+(f.haftung?`<div class="haft">${e(f.haftung).replace(/\n/g,"<br>")}</div>`:"");
     const foot=`<div class="foot"><div>${e(f.name)}<br>${br(D.firm)}</div><div>${f.bank?e(f.bank)+"<br>":""}${f.iban?"IBAN "+e(f.iban)+"<br>":""}${f.bic?"BIC "+e(f.bic):""}</div><div>${f.tel?"Tel. "+e(f.tel)+"<br>":""}${f.stnr?"Steuernr. "+e(f.stnr)+"<br>":""}${f.ustid?"USt-IdNr. "+e(f.ustid):""}</div></div>`;
     const stamp=X.stamp?`<div class="stamp">BEZAHLT${r.bezahltAm?`<small>am ${deDate(r.bezahltAm)}</small>`:""}</div>`:"";
     const addrBlock=`<div><span class="sender">${e(D.sender)}</span><div class="addr">${br(D.addr)}</div></div>`;
@@ -2339,10 +2376,10 @@ export function startApp(){
       </div>`;
     const actions=`<div class="btnrow"><button class="btn accent" data-act="newAus">${ico.cam} Beleg erfassen / scannen</button><button class="btn ghost" data-act="multiAus">${ico.plus} Mehrere Belege</button>${S.ausgaben.length?`<button class="btn ghost" data-act="ausExport">${ico.dl} Export ▾</button>`:""}</div>`;
     if(!S.ausgaben.length) return `${seg}${hintHtml("ausgaben","<b>Ausgaben &amp; Einkäufe.</b> Fotografieren Sie Eingangsrechnungen und Quittungen direkt mit dem iPhone. Betrag, MwSt. und Kategorie tragen Sie kurz ein – fertig für den Steuerberater.")}
-      <div class="empty">${bigIcon()}<h2>Noch keine Ausgaben</h2><p>Tippen Sie auf „Beleg erfassen“, fotografieren Sie die Quittung oder wählen Sie eine PDF-Rechnung Ihres Lieferanten.</p>
+      <div class="empty">${emptyIcon("doc")}<h2>Noch keine Ausgaben</h2><p>Tippen Sie auf „Beleg erfassen“, fotografieren Sie die Quittung oder wählen Sie eine PDF-Rechnung Ihres Lieferanten.</p>
       <div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newAus">${ico.cam} Beleg erfassen / scannen</button><button class="btn ghost" data-act="multiAus">${ico.plus} Mehrere Belege erfassen</button></div></div>`;
     let html=`${seg}${head}${summary}${actions}`, last=null;
-    if(!list.length) return html+`<div class="empty" style="padding:24px 16px"><p>Keine Ausgaben im ${MONTHS[m-1]}.</p></div>`;
+    if(!list.length) return html+`<div class="empty" style="padding:24px 16px">${emptyIcon("doc",1)}<p>Keine Ausgaben im ${MONTHS[m-1]}.</p></div>`;
     for(const x of list){ if(x.datum!==last){ html+=`<div class="daylabel">${longDate(x.datum)}</div>`; last=x.datum; } html+=ausCard(x); }
     return html;
   }
@@ -3685,35 +3722,100 @@ export function startApp(){
     });
   }
 
-  /* ===================== v49: Kalender – mit zwei Fingern zoomen ===================== */
-  (()=>{ let pz=null;
+  /* ===================== Kalender – mit zwei Fingern zoomen (flüssig: GPU + 1× pro Bild) ===================== */
+  (()=>{ let pz=null, raf=0;
     const dist=t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
     const active=()=>UI.view==="kalender" && $("#sheet").hidden && $("#picker").hidden && $("#viewer").hidden;
+    const shown=sc=>{ const z=UI.calZoom||"month"; let s=sc; if(s>1 && z==="day") s=1+(s-1)*.12; if(s<1 && z==="month") s=1-(1-s)*.12; return Math.max(.72,Math.min(1.4,s)); };
+    const paint=()=>{ raf=0; if(!pz || !pz.v) return; const s=shown(pz.sc); pz.s=s; pz.o=1-Math.min(.4,Math.abs(s-1)*.9);
+      pz.v.style.transform=`scale(${s})`; pz.v.style.opacity=String(pz.o); };
     document.addEventListener("touchstart", e=>{
-      if(e.touches.length!==2 || !active() || !e.target.closest?.("#main")){ return; }
-      const t=e.touches; pz={d0:dist(t), cx:(t[0].clientX+t[1].clientX)/2, cy:(t[0].clientY+t[1].clientY)/2, sc:1};
-      const v=$("#main .view"); if(v){ const r=v.getBoundingClientRect(); v.style.transformOrigin=`${pz.cx-r.left}px ${pz.cy-r.top}px`; v.style.transition="none"; }
+      if(e.touches.length!==2 || !active() || !e.target.closest?.("#main")) return;
+      const t=e.touches, v=$("#main .view"); if(!v) return;
+      v.getAnimations?.().forEach(a=>a.cancel());
+      pz={d0:dist(t), cx:(t[0].clientX+t[1].clientX)/2, cy:(t[0].clientY+t[1].clientY)/2, sc:1, s:1, o:1, v};
+      const r=v.getBoundingClientRect(); v.style.transformOrigin=`${pz.cx-r.left}px ${pz.cy-r.top}px`; v.style.transition="none"; v.style.willChange="transform,opacity";
     }, {passive:true});
     document.addEventListener("touchmove", e=>{
       if(!pz || e.touches.length!==2) return; if(e.cancelable) e.preventDefault();
-      pz.sc=dist(e.touches)/pz.d0; const v=$("#main .view"); if(!v) return;
-      const z=UI.calZoom||"month", canIn=z!=="day", canOut=z!=="month";
-      let s=pz.sc; if(s>1 && !canIn) s=1+(s-1)*.15; if(s<1 && !canOut) s=1-(1-s)*.15;
-      v.style.transform=`scale(${Math.max(.75,Math.min(1.35,s))})`; v.style.opacity=String(1-Math.min(.35,Math.abs(s-1)*.8));
+      pz.sc=dist(e.touches)/pz.d0; if(!raf) raf=requestAnimationFrame(paint);
     }, {passive:false});
     const end=e=>{
-      if(!pz || (e.touches && e.touches.length>=2)) return; const p=pz; pz=null;
-      const v=$("#main .view"); if(v){ v.style.transform=""; v.style.opacity=""; v.style.transition=""; }
-      const z=UI.calZoom||"month";
-      if(p.sc>1.18 && z!=="day"){
+      if(!pz || (e.touches && e.touches.length>=2)) return; const p=pz; pz=null; if(raf){ cancelAnimationFrame(raf); raf=0; }
+      const v=p.v, z=UI.calZoom||"month";
+      if(p.sc>1.12 && z!=="day"){
         const el=document.elementFromPoint(p.cx,p.cy); const c=el?.closest?.("[data-day],[data-wday]"); if(c){ UI.calDay=c.dataset.day||c.dataset.wday; UI.calMonth=UI.calDay.slice(0,7); }
-        setCalZoom(z==="month"?"week":"day", p.cx, p.cy);
-      } else if(p.sc<.85 && z!=="month") setCalZoom(z==="day"?"week":"month", p.cx, p.cy);
-      else if(v && v.animate && Math.abs(p.sc-1)>.02 && !reducedMotion()) v.animate([{transform:`scale(${Math.max(.75,Math.min(1.35,p.sc))})`},{transform:"none"}],{duration:260,easing:EASE_OUT});
+        setCalZoom(z==="month"?"week":"day", p.cx, p.cy, p);
+      } else if(p.sc<.9 && z!=="month") setCalZoom(z==="day"?"week":"month", p.cx, p.cy, p);
+      else { const from=v.style.transform||"none", op=v.style.opacity||1; v.style.transform=""; v.style.opacity=""; v.style.transition="";
+        if(v.animate && from!=="none" && !reducedMotion()) v.animate([{transform:from, opacity:op},{transform:"none", opacity:1}],{duration:220,easing:"cubic-bezier(.2,.9,.3,1.08)"}).onfinish=()=>{ v.style.willChange=""; };
+        else v.style.willChange=""; }
     };
     document.addEventListener("touchend", end, {passive:true}); document.addEventListener("touchcancel", end, {passive:true});
     for(const ev of ["gesturestart","gesturechange"]) document.addEventListener(ev, e=>{ if(active()) e.preventDefault(); }, {passive:false});   // iOS: Seite nicht mitzoomen
-  })();
+  })();;
+
+  /* ===================== Kunden-Unterschrift (Annahme / Abholung) ===================== */
+  const SIG_T={annahme:{t:"Annahme",h:"Unterschrift bei Annahme",txt:"Ich übergebe das Gerät zur Reparatur und bestätige den beschriebenen Zustand (inkl. Zustandsfotos) sowie die Auftragsbedingungen."},
+    abholung:{t:"Abholung",h:"Unterschrift bei Abholung",txt:"Ich habe das Gerät repariert und vollständig zurückerhalten."}};
+  const ICO_PEN=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21c3-1 4-4 6-4s1 3 4 3 4-5 8-5"/><path d="M14 4l6 6-8 8H6v-6z"/></svg>`;
+  function sigTile(a, k){
+    const g=a.sign?.[k];
+    return g ? `<button class="sigtile" data-sig="${k}"><b>${SIG_T[k].t}</b><span class="sigimg" style="background-image:url('${g.img}')"></span><small>${esc(g.name||"")}${g.name?" · ":""}${jfStamp(g.ts)}</small></button>`
+             : `<button class="sigtile todo" data-sig="${k}">${ICO_PEN}<b>${SIG_T[k].t}</b><small>Jetzt unterschreiben lassen</small></button>`;
+  }
+  function sigTap(id, k){
+    const a=S.auftraege.find(x=>x.id===id); if(!a) return;
+    if(!a.sign?.[k]) return openSigPad(id,k);
+    openPicker(`${SIG_T[k].h}`, [{label:"Neu unterschreiben lassen", sub:"Die bisherige Unterschrift wird ersetzt", k:"neu"},{label:"Unterschrift entfernen", sub:`${a.sign[k].name||""} · ${jfStamp(a.sign[k].ts)}`, k:"del"}],
+      o=>{ if(o.k==="neu") openSigPad(id,k); else { const sign={...(a.sign||{})}; delete sign[k]; save("auftraege",{...a, sign}); toast("Unterschrift entfernt"); if(!$("#sheet").hidden) openJobDetail(id); } });
+  }
+  function sigPaper(r){
+    const a=r.auftragId && S.auftraege.find(x=>x.id===r.auftragId); const sg=a?.sign; if(!sg || (!sg.annahme && !sg.abholung)) return "";
+    const one=k=>sg[k]?`<div class="sig"><img src="${sg[k].img}" alt="Unterschrift"><div class="sl"></div><small>${SIG_T[k].t} bestätigt${sg[k].name?" – "+esc(sg[k].name):""}<br>${jfStamp(sg[k].ts)} Uhr</small></div>`:"";
+    return `<div class="sigs">${one("annahme")}${one("abholung")}</div>`;
+  }
+  function openSigPad(id, k, opt={}){
+    const a=S.auftraege.find(x=>x.id===id); if(!a) return; $("#sigpad")?.remove();
+    const kn=kunde(a.kundeId);
+    document.body.insertAdjacentHTML("beforeend", `<div class="sigpad" id="sigpad" role="dialog" aria-modal="true" aria-label="${SIG_T[k].h}"><div class="sigcard">
+      <h3>${SIG_T[k].h}</h3><p class="sigtxt"><b>Auftrag #${esc(a.nr)} · ${esc(a.geraet||"")}</b><br>${SIG_T[k].txt}</p>
+      <div class="sigarea" id="sigArea"><canvas id="sigCv"></canvas><span class="sigx">×</span><span class="sigline"></span><span class="sighint">Hier mit dem Finger unterschreiben</span></div>
+      <div class="sigrow"><input class="input" id="sigName" placeholder="Name in Druckbuchstaben" value="${esc(kn?.name||"")}" autocomplete="off"></div>
+      <div class="sigbtns"><button class="btn ghost" id="sigClr">Löschen</button><button class="btn ghost" id="sigNo">${opt.neu?"Später":"Abbrechen"}</button><button class="btn accent" id="sigOk" disabled>Übernehmen</button></div></div></div>`);
+    const pad=$("#sigpad"), cv=$("#sigCv"), area=$("#sigArea"), g=cv.getContext("2d"); requestAnimationFrame(()=>pad.classList.add("on"));
+    let dpr=1, strokes=[], cur=null;
+    const fit=()=>{ const r=area.getBoundingClientRect(); dpr=Math.min(3, window.devicePixelRatio||1); cv.width=Math.round(r.width*dpr); cv.height=Math.round(r.height*dpr); redraw(); };
+    const seg=(c,p0,p1,p2)=>{ const m1={x:(p0.x+p1.x)/2,y:(p0.y+p1.y)/2}, m2={x:(p1.x+p2.x)/2,y:(p1.y+p2.y)/2}; c.lineWidth=p1.w; c.beginPath(); c.moveTo(m1.x,m1.y); c.quadraticCurveTo(p1.x,p1.y,m2.x,m2.y); c.stroke(); };
+    const drawStroke=(c,st,sc=1,ox=0,oy=0)=>{ const P=st.map(p=>({x:(p.x-ox)*sc, y:(p.y-oy)*sc, w:p.w*sc}));
+      c.lineCap="round"; c.lineJoin="round"; c.strokeStyle="#0b1b33"; c.fillStyle="#0b1b33";
+      if(P.length<3){ c.beginPath(); c.arc(P[0].x,P[0].y,P[0].w/2,0,7); c.fill(); return; }
+      for(let i=1;i<P.length-1;i++) seg(c,P[i-1],P[i],P[i+1]); };
+    function redraw(){ g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,cv.width,cv.height); g.setTransform(dpr,0,0,dpr,0,0); strokes.forEach(st=>drawStroke(g,st)); }
+    const pos=e=>{ const r=cv.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top, t:performance.now()}; };
+    cv.onpointerdown=e=>{ e.preventDefault(); cv.setPointerCapture?.(e.pointerId); const p=pos(e); p.w=2.6; cur=[p]; strokes.push(cur); area.classList.add("has"); $("#sigOk").disabled=false; redraw(); };
+    cv.onpointermove=e=>{ if(!cur) return; e.preventDefault();
+      const evs=e.getCoalescedEvents?.()||[e];
+      for(const ev of evs){ const p=pos(ev), q=cur[cur.length-1], d=Math.hypot(p.x-q.x,p.y-q.y); if(d<1.2) continue;
+        const v=d/Math.max(1,p.t-q.t); p.w=Math.max(1.6, Math.min(3.6, 3.8-v*1.1))*.6+q.w*.4; cur.push(p); }
+      const n=cur.length; if(n>=3){ g.setTransform(dpr,0,0,dpr,0,0); g.lineCap="round"; g.strokeStyle="#0b1b33"; seg(g,cur[n-3],cur[n-2],cur[n-1]); } };
+    cv.onpointerup=cv.onpointercancel=()=>{ cur=null; redraw(); };
+    const close=()=>{ pad.classList.remove("on"); setTimeout(()=>pad.remove(),220); window.removeEventListener("resize",fit); };
+    $("#sigClr").onclick=()=>{ strokes=[]; area.classList.remove("has"); $("#sigOk").disabled=true; redraw(); };
+    $("#sigNo").onclick=close; pad.onclick=e=>{ if(e.target===pad) close(); };
+    $("#sigOk").onclick=()=>{
+      const pts=strokes.flat(); if(pts.length<4){ toast("Bitte unterschreiben"); return; }
+      let x0=Infinity,y0=Infinity,x1=-Infinity,y1=-Infinity; pts.forEach(p=>{ x0=Math.min(x0,p.x); y0=Math.min(y0,p.y); x1=Math.max(x1,p.x); y1=Math.max(y1,p.y); });
+      const padd=6, w=x1-x0+padd*2, h=y1-y0+padd*2, sc=Math.min(2.2, 560/w, 200/h), out=document.createElement("canvas");
+      out.width=Math.max(20,Math.round(w*sc)); out.height=Math.max(20,Math.round(h*sc)); const og=out.getContext("2d");
+      strokes.forEach(st=>drawStroke(og,st,sc,x0-padd,y0-padd));
+      const img=out.toDataURL("image/png"), fresh=S.auftraege.find(x=>x.id===id)||a;
+      save("auftraege", {...fresh, sign:{...(fresh.sign||{}), [k]:{img, ts:jfNow(), name:val("sigName")}}});
+      close(); toast(`${SIG_T[k].t} unterschrieben`);
+      if(!$("#sheet").hidden && $("#sTitle").textContent.includes(fresh.nr)) openJobDetail(id);
+    };
+    window.addEventListener("resize",fit); requestAnimationFrame(fit);
+  }
 
   /* ---------- start ---------- */
   document.addEventListener("touchstart", ()=>{}, {passive:true});
