@@ -234,7 +234,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="45";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="46";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -261,7 +261,28 @@ export function startApp(){
     [...view.children].slice(0,9).forEach((c,i)=> c.animate([{opacity:0, transform:"translateY(12px)"},{opacity:1, transform:"none"}], {duration:360, delay:50+i*38, easing:EASE_OUT, fill:"backwards"}));
     const h=$("#viewTitle"); if(h.animate) h.animate([{opacity:0, transform:`translateY(6px)`},{opacity:1, transform:"none"}], {duration:300, easing:EASE_OUT});
   }
-  $("#tabs").addEventListener("click", e => { const b=e.target.closest(".tab"); if(!b) return; switchView(b.dataset.v); });
+  let TAB_DRAG_END=0;
+  $("#tabs").addEventListener("click", e => { if(performance.now()-TAB_DRAG_END<450) return; const b=e.target.closest(".tab"); if(!b) return; switchView(b.dataset.v); });
+  /* Mit dem Finger über die Leiste streichen: Blase folgt dem Finger, Loslassen öffnet den Tab darunter */
+  (()=>{ const bar=$("#tabs"), pill=bar.querySelector(".tab-pill"); let d=null;
+    const geo = () => { const r=bar.getBoundingClientRect(), cs=getComputedStyle(bar), tp=parseFloat(cs.getPropertyValue("--tp"))||6, bl=parseFloat(cs.borderLeftWidth)||0;
+      const inner=r.width-2*bl-2*tp; return {left:r.left+bl+tp, inner, cw:inner/TAB_ORDER.length, tp}; };
+    const idxAt = x => { const g=geo(); return Math.max(0, Math.min(TAB_ORDER.length-1, Math.floor((x-g.left)/g.cw))); };
+    const follow = x => { const g=geo(); const l=Math.max(0, Math.min(g.inner-g.cw, x-g.left-g.cw/2));
+      pill.style.left=(g.tp+l)+"px"; const i=idxAt(x); if(i!==d.i){ d.i=i; setActiveTab(TAB_ORDER[i]); } };
+    bar.addEventListener("touchstart", e => { if(e.touches.length!==1) return; const t=e.touches[0]; d={x:t.clientX, y:t.clientY, on:false, i:TAB_ORDER.indexOf(UI.view)}; }, {passive:true});
+    bar.addEventListener("touchmove", e => {
+      if(!d) return; const t=e.touches[0];
+      if(!d.on){ if(Math.abs(t.clientX-d.x)<8) return; d.on=true; bar.classList.remove("compact"); bar.classList.add("drag"); }
+      if(e.cancelable) e.preventDefault();                                              // Seite nicht mitscrollen
+      follow(t.clientX);
+    }, {passive:false});
+    const finish = cancel => { if(!d) return; const was=d; d=null; if(!was.on) return;
+      TAB_DRAG_END=performance.now(); bar.classList.remove("drag"); pill.style.left="";
+      const v=TAB_ORDER[was.i]; if(cancel || v===UI.view) setActiveTab(UI.view); else switchView(v); };
+    bar.addEventListener("touchend", () => finish(false), {passive:true});
+    bar.addEventListener("touchcancel", () => finish(true), {passive:true});
+  })();
   /* Wischen nach links/rechts → nächster/vorheriger Tab.
      Robust für iPhone: lauscht früh (Capture) auf Touch- UND Pointer-Eingaben, nur eindeutige Ausschlüsse. */
   (()=>{ let sw=null, lastFire=0;
