@@ -232,9 +232,9 @@ export function startApp(){
   const defaultNote = typ => (typ==="rechnung" ? S.firma.textRechnung : S.firma.textAngebot) || "";
 
   /* ---------- UI state ---------- */
-  const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
+  const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="48";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="49";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -260,6 +260,7 @@ export function startApp(){
     view.animate([{opacity:0, transform:`translateX(${dir*34}px)`},{opacity:1, transform:"none"}], {duration:340, easing:EASE_OUT});
     [...view.children].slice(0,9).forEach((c,i)=> c.animate([{opacity:0, transform:"translateY(12px)"},{opacity:1, transform:"none"}], {duration:360, delay:50+i*38, easing:EASE_OUT, fill:"backwards"}));
     const h=$("#viewTitle"); if(h.animate) h.animate([{opacity:0, transform:`translateY(6px)`},{opacity:1, transform:"none"}], {duration:300, easing:EASE_OUT});
+    countUp(view);
   }
   let TAB_DRAG_END=0;
   $("#tabs").addEventListener("click", e => { if(performance.now()-TAB_DRAG_END<450) return; const b=e.target.closest(".tab"); if(!b) return; switchView(b.dataset.v); });
@@ -394,7 +395,49 @@ export function startApp(){
     }
     return ev.sort((x,y)=>(x.t||"99").localeCompare(y.t||"99"));
   }
+  function calZoomSeg(){ const z=UI.calZoom||"month"; return `<div class="seg czseg" role="tablist" aria-label="Ansicht">${[["month","Monat"],["week","Woche"],["day","Tag"]].map(([k,l])=>`<button data-cz="${k}" aria-pressed="${z===k}">${l}</button>`).join("")}</div>`; }
+  function evCard(e){ return `<button class="card" data-job="${e.a.id}"><div class="evt"><span class="time">${e.t||"—"}</span><div style="min-width:0;flex:1"><span class="kind ${e.k}">${e.l}</span><h3>${esc(e.a.geraet)}</h3><div class="meta"><span>${ico.user}${esc(kName(e.a.kundeId))}</span><span class="mono">#${esc(e.a.nr)}</span></div></div><span class="pill s-${e.a.status}">${STATUS[e.a.status].l}</span></div></button>`; }
+  function weekStartOf(iso){ const d=new Date(iso+"T12:00"); d.setDate(d.getDate()-((d.getDay()+6)%7)); return d; }
+  function isoWeek(d0){ const d=new Date(Date.UTC(d0.getFullYear(), d0.getMonth(), d0.getDate())); const n=d.getUTCDay()||7; d.setUTCDate(d.getUTCDate()+4-n); const y0=new Date(Date.UTC(d.getUTCFullYear(),0,1)); return Math.ceil(((d-y0)/864e5+1)/7); }
+  const shortDate = d => `${pad(d.getDate())}.${pad(d.getMonth()+1)}.`;
+  function vKalWoche(){
+    const ws=weekStartOf(UI.calDay), we=new Date(ws); we.setDate(ws.getDate()+6);
+    let rows="", ter=0, rep=0;
+    for(let i=0;i<7;i++){ const d=new Date(ws); d.setDate(ws.getDate()+i); const s=isoDay(d), ev=eventsOn(s);
+      ter+=ev.filter(e=>e.k==="t").length; rep+=ev.filter(e=>e.k==="r").length;
+      rows+=`<button class="wrow${s===today()?" today":""}${d.getDay()===0?" sun":""}" data-wday="${s}" aria-pressed="${s===UI.calDay}"><span class="wdn"><b>${["So","Mo","Di","Mi","Do","Fr","Sa"][d.getDay()]}</b><i>${d.getDate()}</i></span><span class="wev">${ev.length?ev.slice(0,4).map(e=>`<span class="wchip ${e.k}"><b>${e.t||e.l.slice(0,4)}</b><span>${esc(e.a.geraet)}</span></span>`).join("")+(ev.length>4?`<span class="wempty">+ ${ev.length-4} weitere</span>`:""):`<span class="wempty">—</span>`}</span></button>`; }
+    return `${hintHtml("kalwoche","<b>Wochenansicht.</b> Tippen Sie auf einen Tag – oder ziehen Sie mit zwei Fingern weiter auf – für die Tagesansicht. Zusammenziehen führt zurück zum Monat.")}
+      <div class="calhead"><h2>KW ${isoWeek(ws)}<small>${shortDate(ws)} – ${shortDate(we)}${we.getFullYear()}</small></h2><button class="navbtn" data-w="-1" aria-label="Vorige Woche">${ico.left}</button><button class="btn ghost sm" data-w="0">Heute</button><button class="navbtn" data-w="1" aria-label="Nächste Woche">${ico.right}</button></div>
+      ${calZoomSeg()}
+      <div class="stats"><div class="stat"><b class="num">${ter}</b><small>Termine in der Woche</small></div><div class="stat"><b class="num">${rep}</b><small>Geräte repariert</small></div></div>
+      <div class="wlist" id="calZoomArea">${rows}</div>`;
+  }
+  function vKalTag(){
+    const s=UI.calDay, ev=eventsOn(s), timed=ev.filter(e=>e.t), allday=ev.filter(e=>!e.t);
+    const hrs=timed.map(e=>+e.t.slice(0,2)); const h0=Math.min(8,...hrs), h1=Math.max(19,...hrs);
+    const nowH = s===today() ? new Date().getHours() : -1;
+    let tl=""; for(let h=h0;h<=h1;h++){ const list=timed.filter(e=>+e.t.slice(0,2)===h); tl+=`<div class="hr${h===nowH?" now":""}"><span>${pad(h)}:00</span><div>${list.map(evCard).join("")}</div></div>`; }
+    const d=new Date(s+"T12:00");
+    return `<div class="calhead"><h2>${d.toLocaleDateString("de-DE",{weekday:"long"})}<small>${d.toLocaleDateString("de-DE",{day:"numeric",month:"long",year:"numeric"})}</small></h2><button class="navbtn" data-dd="-1" aria-label="Voriger Tag">${ico.left}</button><button class="btn ghost sm" data-dd="0">Heute</button><button class="navbtn" data-dd="1" aria-label="Nächster Tag">${ico.right}</button></div>
+      ${calZoomSeg()}
+      <div class="stats"><div class="stat"><b class="num">${ev.filter(e=>e.k==="t").length}</b><small>Termine an diesem Tag</small></div><div class="stat"><b class="num">${ev.filter(e=>e.k==="r").length}</b><small>Geräte repariert</small></div></div>
+      <div id="calZoomArea" style="display:flex;flex-direction:column;gap:12px">
+      ${allday.length?`<div class="group"><span class="glabel">Ganztägig</span>${allday.map(evCard).join("")}</div>`:""}
+      <div class="tline">${tl}</div>
+      <button class="btn" data-act="newjobday">+ Termin an diesem Tag</button></div>`;
+  }
+  function setCalZoom(z, px, py){
+    const order=["month","week","day"], cur=UI.calZoom||"month", dir=order.indexOf(z)-order.indexOf(cur); if(!dir) return;
+    UI.calZoom=z; if(z==="month") UI.calMonth=UI.calDay.slice(0,7);
+    render(); window.scrollTo({top:0});
+    const v=$("#main .view"); if(!v || !v.animate || reducedMotion()) return;
+    const r=v.getBoundingClientRect(); v.style.transformOrigin = px!=null ? `${px-r.left}px ${py-r.top}px` : "50% 120px";
+    v.animate([{transform:`scale(${dir>0?.86:1.12})`, opacity:.15},{transform:"none", opacity:1}], {duration:360, easing:EASE_OUT});
+    countUp(v);
+  }
   function vKalender(){
+    if(UI.calZoom==="week") return vKalWoche();
+    if(UI.calZoom==="day") return vKalTag();
     const [y,m] = UI.calMonth.split("-").map(Number);
     const first = new Date(y, m-1, 1); const startOff = (first.getDay()+6)%7;
     const start = new Date(y, m-1, 1-startOff);
@@ -410,13 +453,14 @@ export function startApp(){
     const monthName = first.toLocaleDateString("de-DE",{month:"long",year:"numeric"});
     const repMonth = S.auftraege.filter(a=>a.erledigt && a.erledigt.startsWith(UI.calMonth)).length;
     const terMonth = S.auftraege.filter(a=>a.termin && a.termin.startsWith(UI.calMonth)).length;
-    return `${hintHtml("kalender","<b>Kalender.</b> Blau = Termin mit dem Kunden, Grün = an dem Tag repariert. Tippen Sie auf einen Tag und dann auf +, um dort einen Termin anzulegen.")}
+    return `${hintHtml("kalender","<b>Kalender.</b> Blau = Termin mit dem Kunden, Grün = an dem Tag repariert. Tippen Sie auf einen Tag und dann auf +, um dort einen Termin anzulegen. <b>Mit zwei Fingern aufziehen</b> zoomt in die Wochen- und Tagesansicht.")}
       <div class="calhead"><h2>${monthName}</h2><button class="navbtn" data-m="-1" aria-label="Voriger Monat">${ico.left}</button><button class="btn ghost sm" data-m="0">Heute</button><button class="navbtn" data-m="1" aria-label="Nächster Monat">${ico.right}</button></div>
+      ${calZoomSeg()}
       <div class="stats"><div class="stat"><b class="num">${terMonth}</b><small>Termine im Monat</small></div><div class="stat"><b class="num">${repMonth}</b><small>Geräte repariert</small></div></div>
-      <div class="grid">${cells}</div>
+      <div class="grid" id="calZoomArea">${cells}</div>
       <div class="legend"><span><i class="dot t"></i>Termin</span><span><i class="dot r"></i>Repariert</span><span><i class="dot a"></i>Abgeholt</span></div>
       <div class="daylabel">${longDate(UI.calDay)}</div>
-      <div id="dayList" style="display:flex;flex-direction:column;gap:14px">${evs.length ? evs.map(e=>`<button class="card" data-job="${e.a.id}"><div class="evt"><span class="time">${e.t||"—"}</span><div style="min-width:0;flex:1"><span class="kind ${e.k}">${e.l}</span><h3>${esc(e.a.geraet)}</h3><div class="meta"><span>${ico.user}${esc(kName(e.a.kundeId))}</span><span class="mono">#${esc(e.a.nr)}</span></div></div><span class="pill s-${e.a.status}">${STATUS[e.a.status].l}</span></div></button>`).join("")
+      <div id="dayList" style="display:flex;flex-direction:column;gap:14px">${evs.length ? evs.map(evCard).join("")
         : `<div class="card" style="align-items:flex-start"><span style="color:var(--muted)">Nichts eingetragen.</span><button class="btn sm" data-act="newjobday">+ Termin an diesem Tag</button></div>`}</div>`;
   }
 
@@ -527,6 +571,8 @@ export function startApp(){
           <div class="exrow"><span><b>Ausgaben</b><small>${ausCount} im Zeitraum · Netto, Vorsteuer, Brutto</small></span><button class="btn sm" data-act="csvAus" ${ausCount?"":"disabled"}>${ico.dl}CSV</button></div>
           <div class="exrow"><span><b>Komplettpaket (ZIP)</b><small>Beide Tabellen plus alle Belegfotos und PDFs</small></span><button class="btn sm accent" data-act="paket" ${csvCount||ausCount?"":"disabled"}>${ico.dl}ZIP</button></div>
         </div></div>
+      <div class="card"><h4>${ico.check}Bedienung</h4>
+        <div class="exrow"><span><b>Schütteln zum Rückgängigmachen</b><small>${shakeInfo()}</small></span>${shakeBtn()}</div></div>
       <p class="syncnote">${mode==="db"?"Gespeichert in Ihrem Konto – privat, auf allen Geräten gleich.":"Gespeichert in diesem Browser."}<br><small style="opacity:.7">WerkDoc · App-Stand ${APP_VER}</small></p>`;
   }
 
@@ -556,19 +602,26 @@ export function startApp(){
       if(t.dataset.akzent){ setFirma({akzent:t.dataset.akzent}); toast(`Akzentfarbe: ${ACCENTS[t.dataset.akzent].l}`); return; }
       if(t.dataset.pdflayout){ setFirma({pdfLayout:t.dataset.pdflayout}); toast(`PDF-Design: ${LAYOUTS[t.dataset.pdflayout].l}`); return; }
       if(t.dataset.pick && UI.sel){ const id=t.dataset.pick; UI.sel.ids.has(id) ? UI.sel.ids.delete(id) : UI.sel.ids.add(id); UI.sel.confirm=false; render(); return; }
-      if(t.dataset.job) return openJobDetail(t.dataset.job);
+      if(t.dataset.job) return morphOpen(t, ()=>openJobDetail(t.dataset.job));
       if(t.dataset.doc) return openDoc(t.dataset.doc);
       if(t.dataset.aus) return openAusgabe(t.dataset.aus);
       if(t.dataset.am!=null){ const d=+t.dataset.am; if(d===0) UI.ausMonth=today().slice(0,7); else { const [y,mo]=UI.ausMonth.split("-").map(Number); const n=new Date(y,mo-1+d,1); UI.ausMonth=`${n.getFullYear()}-${pad(n.getMonth()+1)}`; } render(); return; }
       if(t.dataset.kunde) return openKunde(t.dataset.kunde);
       if(t.dataset.teil) return openTeil(t.dataset.teil);
       if(t.dataset.day){ UI.calDay=t.dataset.day; render(); return; }
+      if(t.dataset.cz){ setCalZoom(t.dataset.cz); return; }
+      if(t.dataset.wday){ UI.calDay=t.dataset.wday; UI.calMonth=UI.calDay.slice(0,7); const r=t.getBoundingClientRect(); setCalZoom("day", r.left+r.width/2, r.top+r.height/2); return; }
+      if(t.dataset.w!=null||t.dataset.dd!=null){ const n=+(t.dataset.w??t.dataset.dd), step=t.dataset.w!=null?7:1;
+        if(n===0) UI.calDay=today(); else { const d=new Date(UI.calDay+"T12:00"); d.setDate(d.getDate()+n*step); UI.calDay=isoDay(d); }
+        UI.calMonth=UI.calDay.slice(0,7); render(); const v=$("#main #calZoomArea"); if(v && v.animate && !reducedMotion() && n) v.animate([{opacity:0,transform:`translateX(${n*24}px)`},{opacity:1,transform:"none"}],{duration:260,easing:EASE_OUT}); return; }
       if(t.dataset.m!=null){ const d=+t.dataset.m; if(d===0){ UI.calMonth=today().slice(0,7); UI.calDay=today(); } else { const [y,mo]=UI.calMonth.split("-").map(Number); const n=new Date(y,mo-1+d,1); UI.calMonth=`${n.getFullYear()}-${pad(n.getMonth()+1)}`; } render(); return; }
       const a=t.dataset.act;
       if(a==="newjob") openAuftrag(); if(a==="newjobday") openAuftrag(null, UI.calDay);
       if(a==="examples") loadExamples(); if(a==="newdoc") openDocEditor({typ:UI.docSeg==="angebote"?"angebot":"rechnung"});
       if(a==="newkunde") openKunde(); if(a==="firma") openFirma(); if(a==="newteil") openTeil();
       if(a==="texte") openTexte();
+      if(a==="shakeOn"){ shakeEnable().then(ok=>{ toast(ok?"Schütteln zum Rückgängigmachen ist an":"Bewegungssensor nicht freigegeben"); render(); }); return; }
+      if(a==="shakeOff"){ shakeDisable(); toast("Schütteln ist aus"); render(); return; }
       if(a==="selStart"){ UI.sel={kind:t.dataset.kind, ids:new Set(), confirm:false}; render(); return; }
       if(a==="selDone"){ UI.sel=null; render(); return; }
       if(a==="selAll" && UI.sel){ const vis=UI.selVis[UI.sel.kind].map(x=>x.id); const all=vis.length && vis.every(id=>UI.sel.ids.has(id)); UI.sel.ids = all ? new Set() : new Set(vis); UI.sel.confirm=false; render(); return; }
@@ -613,10 +666,43 @@ export function startApp(){
     else { sb.className="hbtn go"; sb.textContent=saveLabel; sb.removeAttribute("aria-label"); sb.hidden=!onSave; }
     $("#sCancel").textContent = opts.cancelLabel || (onSave||opts.onRight ? "Abbrechen" : "Schließen");
     const f=$("#sFoot"); if(opts.foot){ f.innerHTML=opts.foot; f.hidden=false; } else { f.innerHTML=""; f.hidden=true; }
+    if(!SHEET_INSTANT && $("#sheet").hidden) MORPH=null;
     $("#scrim").hidden=false; $("#sheet").hidden=false;
+    if(SHEET_INSTANT){ SHEET_INSTANT=false; const sh=$("#sheet"), sc=$("#scrim");                 // Morph: sofort im Endzustand (Animation übernimmt View Transition / clip-path)
+      sh.classList.add("notrans","on"); sc.classList.add("notrans","on"); void sh.offsetWidth;
+      requestAnimationFrame(()=>{ sh.classList.remove("notrans"); sc.classList.remove("notrans"); fitPapers(); }); return; }
     requestAnimationFrame(()=>{ $("#scrim").classList.add("on"); $("#sheet").classList.add("on"); fitPapers(); });
   }
+  /* Karte → Detail: fließende Verwandlung (View Transitions API, sonst clip-path-Rückfall) */
+  let MORPH=null, SHEET_INSTANT=false;
+  const canVT = () => !!document.startViewTransition && !reducedMotion();
+  function morphOpen(card, fn){
+    if(!card || reducedMotion() || !$("#sheet").hidden){ fn(); return; }
+    const id=card.dataset.job;
+    if(canVT()){
+      card.style.viewTransitionName="wb-morph";
+      try{
+        const vt=document.startViewTransition(()=>{ card.style.viewTransitionName=""; SHEET_INSTANT=true; fn(); $("#sheet").style.viewTransitionName="wb-morph"; });
+        vt.finished.finally(()=>{ $("#sheet").style.viewTransitionName=""; }); MORPH={id}; return;
+      }catch(e){ card.style.viewTransitionName=""; }
+    }
+    const r=card.getBoundingClientRect(); SHEET_INSTANT=true; fn(); MORPH={id};
+    const sh=$("#sheet"), q=sh.getBoundingClientRect();
+    if(sh.animate){ sh.animate([{clipPath:`inset(${Math.max(0,r.top-q.top)}px ${Math.max(0,q.right-r.right)}px ${Math.max(0,q.bottom-r.bottom)}px ${Math.max(0,r.left-q.left)}px round 18px)`},{clipPath:"inset(0px 0px 0px 0px round 22px)"}],{duration:400,easing:"cubic-bezier(.2,.8,.2,1)"});
+      $("#sBody").animate([{opacity:0},{opacity:1}],{duration:280,delay:90,easing:"ease-out",fill:"backwards"});
+      $("#scrim").animate([{opacity:0},{opacity:1}],{duration:300}); }
+  }
   function closeSheet(){
+    const m=MORPH; MORPH=null; const sh=$("#sheet"), sc=$("#scrim");
+    const card = m && canVT() && !sh.hidden ? $(`#main [data-job="${m.id}"]`) : null, cr=card?.getBoundingClientRect();
+    if(card && cr.bottom>60 && cr.top<innerHeight-60){                                      // zurück in die Karte verwandeln
+      sh.style.viewTransitionName="wb-morph";
+      try{
+        const vt=document.startViewTransition(()=>{ sh.style.viewTransitionName=""; sh.classList.add("notrans"); sc.classList.add("notrans"); sh.classList.remove("on"); sc.classList.remove("on");
+          sc.hidden=true; sh.hidden=true; $("#sBody").innerHTML=""; $("#sFoot").innerHTML=""; card.style.viewTransitionName="wb-morph"; });
+        vt.finished.finally(()=>{ card.style.viewTransitionName=""; sh.classList.remove("notrans"); sc.classList.remove("notrans"); }); return;
+      }catch(e){ sh.style.viewTransitionName=""; }
+    }
     $("#scrim").classList.remove("on"); $("#sheet").classList.remove("on");
     setTimeout(()=>{ $("#scrim").hidden=true; $("#sheet").hidden=true; $("#sBody").innerHTML=""; $("#sFoot").innerHTML=""; }, 230);
   }
@@ -704,6 +790,7 @@ export function startApp(){
         <div class="field"><label for="fImei">IMEI / Seriennr.</label><input id="fImei" class="mono" placeholder="optional" value="${esc(a?.imei)}"></div>
         <div class="field"><label for="fZubehoer">Zubehör</label><input id="fZubehoer" placeholder="z. B. Hülle, Ladekabel" value="${esc(a?.zubehoer)}"></div>
       </div></div>
+      <div class="group"><span class="glabel">Zustand bei Annahme · Fotos</span><div class="box jfbox"><div class="jfgrid" id="jfGrid"></div><p class="help">Bis zu 4 Fotos von Kratzern, Glasbruch &amp; Co. vor der Reparatur – mit Datum und Uhrzeit. Schützt vor falschen Reklamationen.</p></div></div>
       <div class="sec"><h4>${ico.card}Kunde</h4>${kundeSelect(a?.kundeId,"a")}</div>
       <div class="group"><span class="glabel">Termin &amp; Status</span><div class="box">
         <div class="field"><label for="fDate">Termin</label><input id="fDate" type="date" value="${t.slice(0,10)}"></div>
@@ -720,11 +807,12 @@ export function startApp(){
       let status=val("fStatus"), erledigt=val("fErl");
       if(erledigt && STATUS[status].n<3) status="fertig";
       const obj={...(a||{id:uid(),nr:nextJobNr(),created:today()}), geraet, problem:val("fProblem"), imei:val("fImei"), zubehoer:val("fZubehoer"), kundeId:k.id, termin:d?(tm?`${d}T${tm}`:d):"", erledigt, status, positionen:readPos()};
+      jfCommit(obj);
       if(status==="abgeholt" && !obj.abgeholtAm) obj.abgeholtAm=today();
       save("auftraege",obj); toast(a?"Auftrag gespeichert":`Auftrag #${obj.nr} angelegt`);
       if(d){ UI.calMonth=d.slice(0,7); UI.calDay=d; }
     });
-    bindPos(); bindKundeSelect("a");
+    bindPos(); bindKundeSelect("a"); jfInit(a);
     if(!S.kunden.length && !a){ $("#aNewKBox").hidden=false; }
     const dj=$("#delJob"); if(dj) dj.onclick=()=>confirmBox(`Auftrag #${esc(a.nr)} endgültig löschen? Rechnungen bleiben erhalten.`, ()=>{ remove("auftraege",a.id); closeSheet(); toast("Auftrag gelöscht"); });
   }
@@ -740,6 +828,7 @@ export function startApp(){
     openSheet(`Auftrag <small>#${esc(a.nr)}</small>`, `
       <div><span class="pill s-${a.status}">${STATUS[a.status].l}</span><h2 style="font-family:var(--f-display);font-size:26px;margin:8px 0 2px;text-wrap:balance">${esc(a.geraet)}</h2>
       <div class="meta"><span>${ico.user}${esc(k?.name||"Ohne Kunde")}</span>${k?.tel?`<span>${ico.phone}<span style="user-select:all">${esc(k.tel)}</span></span>`:""}</div></div>
+      ${a.fotos?.length?`<div class="group"><span class="glabel">Zustand bei Annahme</span><div class="jfgrid ro">${a.fotos.map((f,i)=>`<button class="jf" data-jfv="${f.id}" data-jfi="${i}" aria-label="Zustandsfoto ${i+1}"><span class="jfimg" data-thumb="${f.id}"></span><small>${jfStamp(f.ts)}</small></button>`).join("")}</div></div>`:""}
       <div class="group"><span class="glabel">Status ändern</span><div class="steps">${Object.entries(STATUS).map(([s,v])=>`<button class="step a${v.n}" data-st="${s}" aria-pressed="${a.status===s}">${v.l}</button>`).join("")}</div>
       ${a.status!=="fertig"&&a.status!=="abgeholt"?`<button class="btn accent" id="doneToday">${ico.check} Heute repariert</button>`:""}</div>
       <div class="box">
@@ -764,6 +853,7 @@ export function startApp(){
     $$(".step").forEach(b=>b.onclick=()=>{ const s=b.dataset.st; const o={...a,status:s}; if(s==="fertig"&&!o.erledigt) o.erledigt=today(); if(s==="abgeholt"){ if(!o.erledigt) o.erledigt=today(); if(!o.abgeholtAm) o.abgeholtAm=today(); } save("auftraege",o); toast(STATUS[s].l); openJobDetail(a.id); });
     const dt=$("#doneToday"); if(dt) dt.onclick=()=>{ save("auftraege",{...a,status:"fertig",erledigt:today()}); toast("Als repariert eingetragen"); openJobDetail(a.id); };
     $("#editJob").onclick=()=>openAuftrag(a.id);
+    $$("#sBody [data-jfv]").forEach(b=>b.onclick=async()=>{ const r=await BILD.get(b.dataset.jfv); if(r) showBeleg(r,{title:`Zustand bei Annahme · Foto ${+b.dataset.jfi+1} · ${jfStamp(a.fotos[+b.dataset.jfi]?.ts)}`}); else toast("Foto nicht verfügbar"); });
     $("#mkInv").onclick=()=>openDocEditor({typ:"rechnung", auftragId:a.id});
     $("#mkKva").onclick=()=>openDocEditor({typ:"kva", auftragId:a.id});
     $$("#sBody [data-doc]").forEach(b=>b.onclick=()=>openDoc(b.dataset.doc));
@@ -3237,6 +3327,7 @@ export function startApp(){
   const BACKUP_APP = "repairmobile-werkbank";
   async function exportBackup(){
     const belegBilder={}; for(const x of S.ausgaben) if(x.bild){ const b=await BILD.get(x.id); if(b) belegBilder[x.id]=b; }
+    for(const a of S.auftraege) for(const f of (a.fotos||[])){ const b=await BILD.get(f.id); if(b) belegBilder[f.id]=b; }
     const data = { app:BACKUP_APP, version:2, exportiert:nowStamp(), firma:{...S.firma, geminiApiKey:undefined}, kunden:S.kunden, auftraege:S.auftraege, rechnungen:S.rechnungen, teile:S.teile, ausgaben:S.ausgaben, belegBilder };
     const filename = `repairmobile-backup-${today()}.json`;
     saveFile(filename, new Blob([JSON.stringify(data, null, 2)], {type:"application/json"}), `Backup gespeichert: ${filename}`);
@@ -3426,6 +3517,202 @@ export function startApp(){
       if(Math.abs(d)>6||y<24) last=y; ticking=false; };
     window.addEventListener("scroll", ()=>{ if(!ticking){ ticking=true; requestAnimationFrame(upd); } }, {passive:true});
     bar.addEventListener("click", ()=>bar.classList.remove("compact"));
+  })();
+
+  /* ===================== v49: Zustandsfotos ===================== */
+  let JF=null;
+  const jfNow = () => { const d=new Date(); return `${isoDay(d)}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+  const jfStamp = ts => ts ? `${deDate(ts.slice(0,10))}${ts.length>10?" "+ts.slice(11,16):""}` : "";
+  const ICO_CAM = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>`;
+  function jfInit(a){ JF={list:(a?.fotos||[]).map(f=>({...f})), neu:new Map(), weg:[]}; jfRender(); }
+  function jfRender(){
+    const g=$("#jfGrid"); if(!g || !JF) return;
+    g.innerHTML = JF.list.map((f,i)=>{ const n=JF.neu.get(f.id);
+      return `<div class="jf" data-jfo="${i}">${n?`<span class="jfimg" style="background-image:url('${n.data}')"></span>`:`<span class="jfimg" data-thumb="${f.id}"></span>`}<small>${jfStamp(f.ts).slice(-5)}</small><button type="button" class="jfx" data-jfx="${i}" aria-label="Foto entfernen">×</button></div>`; }).join("")
+      + (JF.list.length<4 ? `<button type="button" class="jf add" id="jfAdd">${ICO_CAM}<span>${JF.list.length?"Weiteres":"Foto"}</span></button>` : "");
+    fillThumbs(g);
+    g.onclick = async e => {
+      const x=e.target.closest("[data-jfx]"); if(x){ const f=JF.list[+x.dataset.jfx]; JF.list.splice(+x.dataset.jfx,1); if(JF.neu.has(f.id)) JF.neu.delete(f.id); else JF.weg.push(f.id); jfRender(); return; }
+      if(e.target.closest("#jfAdd")) return jfPick();
+      const o=e.target.closest("[data-jfo]"); if(o){ const f=JF.list[+o.dataset.jfo]; const r=JF.neu.get(f.id) ? {typ:"image/jpeg", data:JF.neu.get(f.id).data, name:"Zustandsfoto.jpg"} : await BILD.get(f.id); if(r) showBeleg(r,{title:`Zustandsfoto · ${jfStamp(f.ts)}`}); }
+    };
+  }
+  function jfInputs(){
+    if($("#jfCam")) return;
+    document.body.insertAdjacentHTML("beforeend", `<input type="file" id="jfCam" accept="image/*" capture="environment" hidden><input type="file" id="jfLib" accept="image/*" multiple hidden>`);
+    for(const id of ["jfCam","jfLib"]) $("#"+id).onchange = async e => {
+      const files=[...(e.target.files||[])]; e.target.value=""; if(!JF) return; const rest=4-JF.list.length;
+      for(const f of files.slice(0, rest)){
+        try{ const data=await compressImage(f); const id="jf-"+uid(), ts=jfNow(); JF.neu.set(id,{data}); JF.list.push({id, ts}); }catch(err){ toast("Dieses Bildformat kann nicht gelesen werden"); }
+      }
+      if(files.length > rest) toast("Maximal 4 Fotos pro Auftrag – die ersten "+rest+" wurden übernommen");
+      jfRender();
+    };
+  }
+  function jfPick(){
+    jfInputs(); const rest=4-JF.list.length; if(rest<=0){ toast("Maximal 4 Fotos pro Auftrag"); return; }
+    openPicker("Zustandsfoto hinzufügen", [{label:"Foto aufnehmen", sub:"Kamera öffnen – Kratzer, Glasbruch, Dellen festhalten", k:"cam"},{label:"Aus Fotos wählen", sub:`Bis zu ${rest} Bild${rest===1?"":"er"}`, k:"lib"}],
+      o => $(o.k==="cam"?"#jfCam":"#jfLib").click());
+  }
+  function jfCommit(obj){
+    if(!JF) return; obj.fotos=JF.list.map(f=>({id:f.id, ts:f.ts}));
+    for(const [id,n] of JF.neu) BILD.put(id, {typ:"image/jpeg", data:n.data, name:`Auftrag-${obj.nr}-Zustand.jpg`, size:Math.round(n.data.length*.75)});
+    for(const id of JF.weg) BILD.del(id);
+    JF=null;
+  }
+
+  /* ===================== v49: Wischen nach unten schließt Fenster ===================== */
+  function swipeDismiss(panel, {scroller, handle, onClose, scrim}){
+    let g=null;
+    panel.addEventListener("touchstart", e => {
+      g=null; if(e.touches.length!==1 || panel.hidden) return; const t=e.touches[0], el=e.target;
+      if(el.closest("input,textarea,select,[contenteditable],canvas,iframe,.nodrag")) return;
+      const inH=!!(handle && el.closest(handle)), sc=scroller?.(); if(!inH && sc && sc.scrollTop>2) return;
+      g={x:t.clientX, y:t.clientY, t:performance.now(), dy:0, lock:0, inH, sc};
+    }, {passive:true});
+    panel.addEventListener("touchmove", e => {
+      if(!g) return; const t=e.touches[0], dy=t.clientY-g.y, dx=t.clientX-g.x;
+      if(!g.lock){ if(Math.abs(dy)<8 && Math.abs(dx)<8) return;
+        g.lock = (dy>0 && Math.abs(dy)>Math.abs(dx)*1.2 && (g.inH || !g.sc || g.sc.scrollTop<=0)) ? 1 : -1;
+        if(g.lock===1){ panel.style.transition="none"; if(scrim) scrim.style.transition="none"; } }
+      if(g.lock!==1) return; if(e.cancelable) e.preventDefault();
+      g.dy=Math.max(0,dy); panel.style.transform=`translateY(${g.dy}px)`;
+      if(scrim) scrim.style.opacity=String(Math.max(0, 1-g.dy/Math.max(300,panel.offsetHeight)));
+    }, {passive:false});
+    const end = () => {
+      if(!g) return; const s=g; g=null; if(s.lock!==1) return;
+      const v=s.dy/Math.max(1,performance.now()-s.t);
+      if(s.dy>120 || (v>.55 && s.dy>40)){
+        panel.style.transition="transform .2s cubic-bezier(.4,0,1,1)"; panel.style.transform=`translateY(${panel.offsetHeight+40}px)`;
+        if(scrim){ scrim.style.transition="opacity .2s"; scrim.style.opacity="0"; }
+        setTimeout(()=>{ onClose(); setTimeout(()=>{ panel.style.transition=""; panel.style.transform=""; if(scrim){ scrim.style.transition=""; scrim.style.opacity=""; } }, 260); }, 190);
+      } else {
+        panel.style.transition="transform .32s cubic-bezier(.2,.9,.3,1.08)"; panel.style.transform="";
+        if(scrim){ scrim.style.transition="opacity .3s"; scrim.style.opacity=""; }
+        setTimeout(()=>{ panel.style.transition=""; if(scrim) scrim.style.transition=""; }, 340);
+      }
+    };
+    panel.addEventListener("touchend", end, {passive:true}); panel.addEventListener("touchcancel", end, {passive:true});
+  }
+  swipeDismiss($("#sheet"), {scroller:()=>$("#sBody"), handle:".sheet-h", scrim:$("#scrim"), onClose:()=>{ MORPH=null; closeSheet(); }});
+  swipeDismiss($("#picker"), {scroller:()=>$("#picker"), handle:"h3", scrim:$("#pscrim"), onClose:()=>closePicker()});
+  swipeDismiss($("#viewer"), {scroller:()=>$("#vBody"), handle:".viewer-h", onClose:()=>closeViewer()});
+
+  /* ===================== v49: Rückgängig + Schütteln ===================== */
+  const UNDO=[], UNDO_BILD=new Map();
+  const COLL_L={kunden:["Kunde","Kunden"],auftraege:["Auftrag","Aufträge"],rechnungen:["Dokument","Dokumente"],teile:["Ersatzteil","Ersatzteile"],ausgaben:["Ausgabe","Ausgaben"]};
+  const clone = o => o==null ? o : JSON.parse(JSON.stringify(o));
+  function undoPush(label, fn){ UNDO.push({label, fn, t:Date.now()}); if(UNDO.length>25) UNDO.shift(); }
+  const _save=save, _remove=remove, _removeMany=removeMany, _bildDel=BILD.del.bind(BILD);
+  async function undoRestoreBilder(o){ for(const id of [o.id, ...(o.fotos||[]).map(f=>f.id)]){ const b=UNDO_BILD.get(id); if(b) await BILD.put(id,b); } }
+  save = function(coll, obj){
+    const prev=clone(S[coll].find(x=>x.id===obj.id)), L=COLL_L[coll]||["Eintrag","Einträge"];
+    let label = !prev ? `${L[0]} angelegt` : `${L[0]} geändert`;
+    if(coll==="auftraege"){ const nm=`#${obj.nr||""} ${obj.geraet||""}`.trim(); label = !prev ? `Auftrag ${nm} angelegt` : prev.status!==obj.status ? `Status „${STATUS[obj.status]?.l||obj.status}“ bei ${nm}` : `Auftrag ${nm} geändert`; }
+    undoPush(label, () => prev ? _save(coll, prev) : _remove(coll, obj.id));
+    return _save(coll, obj);
+  };
+  remove = function(coll, id){
+    const prev=clone(S[coll].find(x=>x.id===id)), L=COLL_L[coll]||["Eintrag","Einträge"];
+    if(prev) undoPush(coll==="auftraege" ? `Auftrag #${prev.nr} ${prev.geraet||""} gelöscht` : `${L[0]} gelöscht`, async () => { await _save(coll, prev); undoRestoreBilder(prev); });
+    return _remove(coll, id);
+  };
+  removeMany = function(coll, ids){
+    const set=new Set(ids), prev=clone(S[coll].filter(x=>set.has(x.id))), L=COLL_L[coll]||["Eintrag","Einträge"];
+    if(prev.length) undoPush(`${prev.length} ${prev.length===1?L[0]:L[1]} gelöscht`, async () => { for(const p of prev){ upsertLocal(coll, p); undoRestoreBilder(p); } lsSave(); render();
+      if(mode==="db") for(const p of prev){ const {id,...b}=p; try{ await dbRefs[coll].doc(id).set(b); }catch(e){} } });
+    return _removeMany(coll, ids);
+  };
+  BILD.del = async function(id){ try{ const b=await BILD.get(id); if(b){ UNDO_BILD.set(id,b); if(UNDO_BILD.size>40) UNDO_BILD.delete(UNDO_BILD.keys().next().value); } }catch(e){} return _bildDel(id); };
+  function undoLast(){
+    const u=UNDO.pop(); if(!u){ toast("Nichts zum Rückgängigmachen"); return; }
+    try{ u.fn(); toast(`Rückgängig: ${u.label}`); }catch(e){ toast("Rückgängig fehlgeschlagen"); }
+  }
+  function onShake(){
+    if(!$("#picker").hidden || !$("#tour").hidden) return;
+    try{ navigator.vibrate?.(30); }catch(e){}
+    const u=UNDO[UNDO.length-1];
+    if(!u || Date.now()-u.t > 30*60*1000){ toast("Nichts zum Rückgängigmachen"); return; }
+    openPicker("Aktion rückgängig machen?", [{label:"Rückgängig machen", sub:u.label}], () => undoLast());
+  }
+  const SHAKE={on:false, last:0, hits:[], p:null};
+  function onMotion(e){
+    const a=e.accelerationIncludingGravity||e.acceleration; if(!a || a.x==null) return;
+    const now=Date.now();
+    if(SHAKE.p){ const d=Math.abs(a.x-SHAKE.p.x)+Math.abs(a.y-SHAKE.p.y)+Math.abs(a.z-SHAKE.p.z);
+      if(d>26){ SHAKE.hits=SHAKE.hits.filter(t=>now-t<800); SHAKE.hits.push(now);
+        if(SHAKE.hits.length>=3 && now-SHAKE.last>2500){ SHAKE.last=now; SHAKE.hits=[]; onShake(); } } }
+    SHAKE.p={x:a.x, y:a.y, z:a.z};
+  }
+  const shakePref = () => { try{ return localStorage.getItem("wb-shake"); }catch(e){ return null; } };
+  const shakeAvail = () => typeof window.DeviceMotionEvent!=="undefined" && ("ontouchstart" in window);
+  const shakeNeedsPerm = () => typeof window.DeviceMotionEvent?.requestPermission==="function";
+  function shakeStart(){ if(SHAKE.on) return; SHAKE.on=true; window.addEventListener("devicemotion", onMotion); }
+  async function shakeEnable(){
+    if(!shakeAvail()) return false;
+    if(shakeNeedsPerm()){ try{ if(await DeviceMotionEvent.requestPermission()!=="granted") return false; }catch(e){ return false; } }
+    try{ localStorage.setItem("wb-shake","1"); }catch(e){} shakeStart(); return true;
+  }
+  function shakeDisable(){ try{ localStorage.setItem("wb-shake","0"); }catch(e){} SHAKE.on=false; window.removeEventListener("devicemotion", onMotion); }
+  const shakeInfo = () => !shakeAvail() ? "Nur auf dem Smartphone verfügbar" : SHAKE.on ? "An – Handy kurz schütteln, um die letzte Aktion zurückzunehmen" : shakeNeedsPerm() && shakePref()!=="0" ? "Einmal aktivieren, damit das iPhone den Bewegungssensor freigibt" : "Aus";
+  const shakeBtn = () => !shakeAvail() ? "" : SHAKE.on ? `<button class="btn sm ghost" data-act="shakeOff">Ausschalten</button>` : `<button class="btn sm" data-act="shakeOn">Aktivieren</button>`;
+  (()=>{ if(!shakeAvail() || shakePref()==="0") return;
+    if(!shakeNeedsPerm()){ shakeStart(); return; }                                       // Android: sofort an
+    if(shakePref()==="1"){ const once=async()=>{ window.removeEventListener("touchend", once, true);   // iPhone: bereits erlaubt → beim ersten Tippen still wieder anmelden
+        try{ if(await DeviceMotionEvent.requestPermission()==="granted"){ shakeStart(); if(UI.view==="mehr") render(); } }catch(e){} };
+      window.addEventListener("touchend", once, true); }
+  })();
+
+  /* ===================== v49: Header schrumpft beim Scrollen ===================== */
+  (()=>{ const top=$(".top"); let on=false, tick=false;
+    const upd=()=>{ tick=false; const y=window.scrollY; if(!on && y>56){ on=true; top.classList.add("shrink"); } else if(on && y<12){ on=false; top.classList.remove("shrink"); } };
+    window.addEventListener("scroll", ()=>{ if(!tick){ tick=true; requestAnimationFrame(upd); } }, {passive:true});
+  })();
+
+  /* ===================== v49: Zahlen zählen beim Öffnen hoch ===================== */
+  function countUp(root){
+    if(!root || reducedMotion()) return;
+    $$(".stats .stat b, .tri b, .asum .abig", root).forEach(el=>{
+      const txt=el.textContent.trim(), isEur=/€/.test(txt);
+      const n = isEur ? parseFloat(txt.replace(/[^\d,\-]/g,"").replace(",",".")) : parseInt(txt.replace(/[^\d\-]/g,""),10);
+      if(!isFinite(n) || n===0) return;
+      const t0=performance.now(), dur=Math.min(1200, 650+Math.log10(Math.abs(n)+1)*160);
+      const fmt = isEur ? (x=>eur(Math.round(x*100)/100)) : (x=>String(Math.round(x)));
+      el.textContent=fmt(0);
+      const step=now=>{ if(!el.isConnected) return; const p=Math.min(1,(now-t0)/dur), k=1-Math.pow(1-p,3);
+        if(p<1){ el.textContent=fmt(n*k); requestAnimationFrame(step); } else el.textContent=txt; };
+      requestAnimationFrame(step);
+    });
+  }
+
+  /* ===================== v49: Kalender – mit zwei Fingern zoomen ===================== */
+  (()=>{ let pz=null;
+    const dist=t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
+    const active=()=>UI.view==="kalender" && $("#sheet").hidden && $("#picker").hidden && $("#viewer").hidden;
+    document.addEventListener("touchstart", e=>{
+      if(e.touches.length!==2 || !active() || !e.target.closest?.("#main")){ return; }
+      const t=e.touches; pz={d0:dist(t), cx:(t[0].clientX+t[1].clientX)/2, cy:(t[0].clientY+t[1].clientY)/2, sc:1};
+      const v=$("#main .view"); if(v){ const r=v.getBoundingClientRect(); v.style.transformOrigin=`${pz.cx-r.left}px ${pz.cy-r.top}px`; v.style.transition="none"; }
+    }, {passive:true});
+    document.addEventListener("touchmove", e=>{
+      if(!pz || e.touches.length!==2) return; if(e.cancelable) e.preventDefault();
+      pz.sc=dist(e.touches)/pz.d0; const v=$("#main .view"); if(!v) return;
+      const z=UI.calZoom||"month", canIn=z!=="day", canOut=z!=="month";
+      let s=pz.sc; if(s>1 && !canIn) s=1+(s-1)*.15; if(s<1 && !canOut) s=1-(1-s)*.15;
+      v.style.transform=`scale(${Math.max(.75,Math.min(1.35,s))})`; v.style.opacity=String(1-Math.min(.35,Math.abs(s-1)*.8));
+    }, {passive:false});
+    const end=e=>{
+      if(!pz || (e.touches && e.touches.length>=2)) return; const p=pz; pz=null;
+      const v=$("#main .view"); if(v){ v.style.transform=""; v.style.opacity=""; v.style.transition=""; }
+      const z=UI.calZoom||"month";
+      if(p.sc>1.18 && z!=="day"){
+        const el=document.elementFromPoint(p.cx,p.cy); const c=el?.closest?.("[data-day],[data-wday]"); if(c){ UI.calDay=c.dataset.day||c.dataset.wday; UI.calMonth=UI.calDay.slice(0,7); }
+        setCalZoom(z==="month"?"week":"day", p.cx, p.cy);
+      } else if(p.sc<.85 && z!=="month") setCalZoom(z==="day"?"week":"month", p.cx, p.cy);
+      else if(v && v.animate && Math.abs(p.sc-1)>.02 && !reducedMotion()) v.animate([{transform:`scale(${Math.max(.75,Math.min(1.35,p.sc))})`},{transform:"none"}],{duration:260,easing:EASE_OUT});
+    };
+    document.addEventListener("touchend", end, {passive:true}); document.addEventListener("touchcancel", end, {passive:true});
+    for(const ev of ["gesturestart","gesturechange"]) document.addEventListener(ev, e=>{ if(active()) e.preventDefault(); }, {passive:false});   // iOS: Seite nicht mitzoomen
   })();
 
   /* ---------- start ---------- */
