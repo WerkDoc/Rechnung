@@ -150,6 +150,7 @@ main{max-width:720px;margin:0 auto;padding:16px 16px 140px}
 .empty{text-align:center;padding:40px 16px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:10px}
 .empty h2{font-family:var(--f-display);color:var(--fg);margin:0;font-size:22px}
 .empty p{margin:0;max-width:34ch}
+.calempty{align-items:center!important;text-align:center}
 
 .btn{border:0;border-radius:999px;padding:11px 18px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;background:var(--bar);color:var(--bar-fg)}
 :root[data-theme="dark"] .btn:not(.accent):not(.ghost):not(.soft):not(.danger){background:var(--bar-2)}
@@ -899,6 +900,75 @@ mark{background:color-mix(in srgb, var(--hi) 30%, transparent);color:inherit;bor
 /* Wischen-zum-Schließen: Griff deutlicher */
 .picker::before{content:"";display:block;width:40px;height:4px;border-radius:2px;background:var(--line);margin:-4px auto 2px}
 @media (prefers-reduced-motion: reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}}
+/* ===== Animierte Leer-Ansichten ===== */
+.emi{width:96px;height:96px;overflow:visible;display:block}
+.emi.sm{width:64px;height:64px}
+.emi *{transform-box:fill-box;transform-origin:center}
+.em-float{animation:emFloat 3.2s ease-in-out infinite alternate;transform-box:view-box;transform-origin:50% 50%}
+@keyframes emFloat{from{transform:translateY(2px)}to{transform:translateY(-5px)}}
+.em-sh{fill:var(--line);opacity:.8;animation:emShadow 3.2s ease-in-out infinite alternate}
+@keyframes emShadow{from{transform:scaleX(1)}to{transform:scaleX(.78);opacity:.45}}
+.em-spin{animation:emSpin 9s linear infinite}
+.em-spin.rev{animation-duration:6s;animation-direction:reverse}
+@keyframes emSpin{to{transform:rotate(360deg)}}
+.em-gear{fill:var(--fg);fill-rule:evenodd;opacity:.88}
+.em-gear.b{fill:var(--link);opacity:.75}
+.em-wr{fill:var(--surface);stroke:var(--accent);stroke-width:4.2;stroke-linejoin:round}
+.em-swing{transform-origin:12% 50%;animation:emSwing 2.6s ease-in-out infinite alternate}
+@keyframes emSwing{from{transform:rotate(-7deg)}to{transform:rotate(9deg)}}
+.em-cal-b{fill:var(--surface);stroke:var(--faint);stroke-width:2.4}
+.em-cal-h{fill:var(--accent)}
+.em-cal-d{fill:var(--faint)}
+.em-cal-d.on{fill:var(--link)}
+.em-page{fill:var(--surface-2);stroke:var(--faint);stroke-width:2;transform-origin:50% 0%;animation:emPage 3.4s ease-in-out infinite}
+@keyframes emPage{0%,100%{transform:skewX(0) scaleY(1)}50%{transform:skewX(-4deg) scaleY(.96)}}
+.em-clock{fill:var(--surface);stroke:var(--fg);stroke-width:3}
+.em-hand{stroke:var(--fg);stroke-width:3;stroke-linecap:round;transform-box:view-box}
+.em-hand.m{stroke:var(--accent);stroke-width:2.6;animation:emSpin 6s linear infinite}
+.em-hand.h{animation:emSpin 72s linear infinite}
+.em-doc{fill:var(--surface);stroke:var(--faint);stroke-width:2.4}
+.em-line{stroke:var(--line);stroke-width:4;stroke-linecap:round}
+.em-line.a{stroke:var(--accent)}
+.em-ok{fill:var(--green)}
+.em-okc{fill:none;stroke:#fff;stroke-width:3.4;stroke-linecap:round;stroke-linejoin:round}
+.em-shine{transform-box:view-box;animation:emShine 3.2s cubic-bezier(.45,0,.3,1) infinite}
+@keyframes emShine{0%{transform:translateX(-40px) skewX(-22deg)}55%,100%{transform:translateX(130px) skewX(-22deg)}}
+.em-glow{animation:emGlow 3.2s ease-in-out infinite}
+@keyframes emGlow{0%,100%{filter:drop-shadow(0 0 0 transparent)}45%{filter:drop-shadow(0 0 6px color-mix(in srgb, var(--green) 60%, transparent))}}
+.em-ring{fill:none;stroke:var(--link);stroke-width:2;transform-box:view-box;transform-origin:48px 46px;animation:emRing 2.6s ease-out infinite}
+.em-ring.d2{animation-delay:1.3s}
+@keyframes emRing{from{transform:scale(.55);opacity:.55}to{transform:scale(1.35);opacity:0}}
+.em-u{fill:var(--fg)} .em-u.b{fill:var(--link);opacity:.55}
+.em-f2{animation:emFloat 3.6s ease-in-out .5s infinite alternate;transform-box:view-box}
+@media (prefers-reduced-motion: reduce){.emi *,.emi{animation:none!important}}
+/* Unterschrift */
+.sigpad{position:fixed;inset:0;z-index:95;background:rgba(5,10,18,.55);display:flex;align-items:flex-end;justify-content:center;opacity:0;transition:opacity .2s}
+.sigpad.on{opacity:1}
+.sigcard{background:var(--bg);width:100%;max-width:720px;border-radius:24px 24px 0 0;padding:14px 16px calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;gap:10px;transform:translateY(30px);transition:transform .28s cubic-bezier(.2,.9,.3,1)}
+.sigpad.on .sigcard{transform:none}
+.sigcard h3{margin:0;font-family:var(--f-display);font-size:20px}
+.sigcard .sigtxt{margin:0;font-size:13.5px;color:var(--muted);line-height:1.4}
+.sigarea{position:relative;height:min(46vh,260px);border:1.5px dashed var(--faint);border-radius:18px;background:#fff;touch-action:none;overflow:hidden}
+.sigarea canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+.sigarea .sigline{position:absolute;left:22px;right:22px;bottom:46px;border-top:1.5px solid #c9d1db;pointer-events:none}
+.sigarea .sighint{position:absolute;left:0;right:0;bottom:16px;text-align:center;font-size:12.5px;color:#98a2ad;pointer-events:none}
+.sigarea .sigx{position:absolute;left:22px;bottom:50px;font-size:22px;color:#98a2ad;pointer-events:none;font-family:var(--f-display)}
+.sigarea.has .sighint{opacity:0}
+.sigrow{display:flex;gap:8px;align-items:center}
+.sigrow .input{flex:1}
+.sigbtns{display:grid;grid-template-columns:auto 1fr 1fr;gap:8px}
+.sigs-box{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sigtile{display:flex;flex-direction:column;gap:6px;align-items:stretch;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:10px 12px;color:var(--fg)}
+.sigtile b{font-size:13px}
+.sigtile small{font-size:11.5px;color:var(--muted)}
+.sigtile .sigimg{height:54px;border-radius:10px;background:#fff center/contain no-repeat;border:1px solid var(--line)}
+.sigtile.todo{border-style:dashed;color:var(--link);align-items:center;justify-content:center;min-height:104px;text-align:center}
+.sigtile.todo svg{width:26px;height:26px}
+.paper .sigs{display:flex;gap:22px;margin:4px 0 12px}
+.paper .sig{flex:1;max-width:48%}
+.paper .sig img{display:block;height:44px;max-width:100%;object-fit:contain;object-position:left bottom;margin-bottom:2px}
+.paper .sig .sl{border-top:1px solid var(--ink-2,#555)}
+.paper .sig small{display:block;font-size:8.5px;color:var(--ink-2,#555);margin-top:3px;line-height:1.35}
 /* Nummernkreise */
 #nrPrev{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13.5px}
 #nrPrev i{font-style:normal;color:var(--muted)}
