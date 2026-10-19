@@ -234,7 +234,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="46";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="47";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -270,15 +270,17 @@ export function startApp(){
     const idxAt = x => { const g=geo(); return Math.max(0, Math.min(TAB_ORDER.length-1, Math.floor((x-g.left)/g.cw))); };
     const follow = x => { const g=geo(); const l=Math.max(0, Math.min(g.inner-g.cw, x-g.left-g.cw/2));
       pill.style.left=(g.tp+l)+"px"; const i=idxAt(x); if(i!==d.i){ d.i=i; setActiveTab(TAB_ORDER[i]); } };
-    bar.addEventListener("touchstart", e => { if(e.touches.length!==1) return; const t=e.touches[0]; d={x:t.clientX, y:t.clientY, on:false, i:TAB_ORDER.indexOf(UI.view)}; }, {passive:true});
+    bar.addEventListener("touchstart", e => { if(e.touches.length!==1) return; bar.classList.remove("compact"); const t=e.touches[0];
+      d={x:t.clientX, y:t.clientY, on:false, i:TAB_ORDER.indexOf(UI.view)}; bar.classList.add("drag"); follow(t.clientX); }, {passive:true});   // Berühren → Glas-Blase wächst & springt unter den Finger
     bar.addEventListener("touchmove", e => {
       if(!d) return; const t=e.touches[0];
-      if(!d.on){ if(Math.abs(t.clientX-d.x)<8) return; d.on=true; bar.classList.remove("compact"); bar.classList.add("drag"); }
+      if(!d.on){ if(Math.abs(t.clientX-d.x)<8) return; d.on=true; }
       if(e.cancelable) e.preventDefault();                                              // Seite nicht mitscrollen
       follow(t.clientX);
     }, {passive:false});
-    const finish = cancel => { if(!d) return; const was=d; d=null; if(!was.on) return;
-      TAB_DRAG_END=performance.now(); bar.classList.remove("drag"); pill.style.left="";
+    const finish = cancel => { if(!d) return; const was=d; d=null; bar.classList.remove("drag"); pill.style.left="";
+      if(!was.on){ setActiveTab(UI.view); return; }                                      // nur getippt → normaler Klick übernimmt
+      TAB_DRAG_END=performance.now();
       const v=TAB_ORDER[was.i]; if(cancel || v===UI.view) setActiveTab(UI.view); else switchView(v); };
     bar.addEventListener("touchend", () => finish(false), {passive:true});
     bar.addEventListener("touchcancel", () => finish(true), {passive:true});
