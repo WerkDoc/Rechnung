@@ -234,7 +234,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="47";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="48";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -263,22 +263,28 @@ export function startApp(){
   }
   let TAB_DRAG_END=0;
   $("#tabs").addEventListener("click", e => { if(performance.now()-TAB_DRAG_END<450) return; const b=e.target.closest(".tab"); if(!b) return; switchView(b.dataset.v); });
-  /* Mit dem Finger über die Leiste streichen: Blase folgt dem Finger, Loslassen öffnet den Tab darunter */
-  (()=>{ const bar=$("#tabs"), pill=bar.querySelector(".tab-pill"); let d=null;
+  /* Mit dem Finger über die Leiste streichen: Glas-Blase folgt dem Finger (GPU, 1× pro Bild), Loslassen öffnet den Tab darunter */
+  (()=>{ const bar=$("#tabs"), pill=bar.querySelector(".tab-pill"); let d=null, raf=0;
     const geo = () => { const r=bar.getBoundingClientRect(), cs=getComputedStyle(bar), tp=parseFloat(cs.getPropertyValue("--tp"))||6, bl=parseFloat(cs.borderLeftWidth)||0;
-      const inner=r.width-2*bl-2*tp; return {left:r.left+bl+tp, inner, cw:inner/TAB_ORDER.length, tp}; };
-    const idxAt = x => { const g=geo(); return Math.max(0, Math.min(TAB_ORDER.length-1, Math.floor((x-g.left)/g.cw))); };
-    const follow = x => { const g=geo(); const l=Math.max(0, Math.min(g.inner-g.cw, x-g.left-g.cw/2));
-      pill.style.left=(g.tp+l)+"px"; const i=idxAt(x); if(i!==d.i){ d.i=i; setActiveTab(TAB_ORDER[i]); } };
-    bar.addEventListener("touchstart", e => { if(e.touches.length!==1) return; bar.classList.remove("compact"); const t=e.touches[0];
-      d={x:t.clientX, y:t.clientY, on:false, i:TAB_ORDER.indexOf(UI.view)}; bar.classList.add("drag"); follow(t.clientX); }, {passive:true});   // Berühren → Glas-Blase wächst & springt unter den Finger
+      const inner=r.width-2*bl-2*tp; return {left:r.left+bl+tp, inner, cw:inner/TAB_ORDER.length}; };
+    const place = () => { raf=0; if(!d) return; const g=d.g, l=Math.max(0, Math.min(g.inner-g.cw, d.lx-g.left-g.cw/2));
+      pill.style.transform=`translate3d(${l}px,0,0)`;
+      const i=Math.max(0, Math.min(TAB_ORDER.length-1, Math.floor((d.lx-g.left)/g.cw))); if(i!==d.i){ d.i=i; setActiveTab(TAB_ORDER[i]); } };
+    const queue = () => { if(!raf) raf=requestAnimationFrame(place); };
+    const grow = () => { if(!d || d.grown) return; d.grown=true; d.g=geo(); bar.classList.add("drag","grow"); queue(); };
+    bar.addEventListener("touchstart", e => { if(e.touches.length!==1) return; const t=e.touches[0];
+      if(bar.classList.contains("compact")) bar.classList.remove("compact");
+      d={x:t.clientX, lx:t.clientX, on:false, grown:false, i:TAB_ORDER.indexOf(UI.view)};
+      d.tm=setTimeout(grow, 120);                                                       // kurz antippen → kein Aufblähen/Wackeln
+    }, {passive:true});
     bar.addEventListener("touchmove", e => {
-      if(!d) return; const t=e.touches[0];
-      if(!d.on){ if(Math.abs(t.clientX-d.x)<8) return; d.on=true; }
+      if(!d) return; const t=e.touches[0]; d.lx=t.clientX;
+      if(!d.on){ if(Math.abs(t.clientX-d.x)<6) return; d.on=true; clearTimeout(d.tm); grow(); }
       if(e.cancelable) e.preventDefault();                                              // Seite nicht mitscrollen
-      follow(t.clientX);
+      queue();
     }, {passive:false});
-    const finish = cancel => { if(!d) return; const was=d; d=null; bar.classList.remove("drag"); pill.style.left="";
+    const finish = cancel => { if(!d) return; const was=d; d=null; clearTimeout(was.tm); if(raf){ cancelAnimationFrame(raf); raf=0; }
+      bar.classList.remove("drag","grow"); pill.style.transform="";
       if(!was.on){ setActiveTab(UI.view); return; }                                      // nur getippt → normaler Klick übernimmt
       TAB_DRAG_END=performance.now();
       const v=TAB_ORDER[was.i]; if(cancel || v===UI.view) setActiveTab(UI.view); else switchView(v); };
