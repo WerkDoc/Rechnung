@@ -842,6 +842,63 @@ mark{background:color-mix(in srgb, var(--hi) 30%, transparent);color:inherit;bor
 .tabs.compact .tab{padding:11px 0;gap:0}
 .tabs.compact .tab .tlab{max-height:0;opacity:0}
 .tabs.compact .tab svg{width:25px;height:25px}
+/* ===== v49: Kalender-Zoom, Morph, Zustandsfotos, Wischen-zum-Schließen, Header, Zähler ===== */
+.czseg{margin-top:-2px}
+.calhead h2 small{display:block;font-family:var(--f-body);font-weight:600;font-size:13px;color:var(--muted);letter-spacing:0}
+.wlist{display:flex;flex-direction:column;gap:8px}
+.wrow{display:flex;align-items:stretch;gap:12px;text-align:left;border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:10px 12px;color:var(--fg);min-height:58px}
+.wrow .wdn{flex:none;width:44px;display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:12px;background:var(--surface-2)}
+.wrow .wdn b{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase}
+.wrow .wdn i{font-style:normal;font-family:var(--f-display);font-weight:800;font-size:20px;line-height:1.1}
+.wrow.today .wdn{background:var(--accent);color:var(--accent-fg)} .wrow.today .wdn b{color:inherit;opacity:.85}
+.wrow.sun .wdn i{color:var(--red)} .wrow.today.sun .wdn i{color:inherit}
+.wrow[aria-pressed="true"]{border-color:var(--link);box-shadow:0 0 0 1px var(--link)}
+.wrow .wev{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;gap:5px}
+.wchip{display:flex;align-items:center;gap:8px;font-size:14px;min-width:0}
+.wchip b{font-family:var(--f-mono);font-weight:500;font-size:12.5px;color:var(--muted);flex:none;min-width:38px}
+.wchip span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.wchip::before{content:"";width:8px;height:8px;border-radius:50%;flex:none;background:var(--blue)}
+.wchip.r::before{background:var(--green)} .wchip.a::before{background:var(--muted)}
+.wempty{color:var(--faint);font-size:14px}
+.tline{display:flex;flex-direction:column;border:1px solid var(--line);background:var(--surface);border-radius:18px;overflow:hidden}
+.tline .hr{display:grid;grid-template-columns:54px 1fr;min-height:46px;border-top:1px solid var(--line)}
+.tline .hr:first-child{border-top:0}
+.tline .hr>span{font-family:var(--f-mono);font-size:12px;color:var(--muted);padding:8px 0 0 12px}
+.tline .hr>div{display:flex;flex-direction:column;gap:6px;padding:6px 8px 6px 0}
+.tline .hr.now{background:color-mix(in srgb, var(--accent) 6%, transparent)}
+.tline .hr.now>span{color:var(--accent);font-weight:700}
+.tline .card{padding:10px 12px}
+.calzoomhint{font-size:12.5px;color:var(--muted);text-align:center;margin-top:-4px}
+/* Morph (View Transitions) */
+::view-transition-group(wb-morph){animation-duration:.42s;animation-timing-function:cubic-bezier(.2,.8,.2,1)}
+::view-transition-old(wb-morph),::view-transition-new(wb-morph){width:100%;height:100%;object-fit:cover;object-position:top center}
+::view-transition-old(root),::view-transition-new(root){animation-duration:.3s}
+.notrans{transition:none!important}
+/* Zustandsfotos */
+.jfgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;padding:12px}
+.jfgrid.ro{padding:0}
+.jf{position:relative;aspect-ratio:1;border-radius:14px;border:1px solid var(--line);background:var(--surface-2);overflow:hidden;padding:0;display:block;color:var(--muted)}
+.jf .jfimg{position:absolute;inset:0;background:center/cover no-repeat var(--surface-2)}
+.jf small{position:absolute;left:0;right:0;bottom:0;padding:10px 4px 3px;font-size:10px;font-weight:600;color:#fff;background:linear-gradient(transparent,rgba(0,0,0,.6));text-align:center;font-family:var(--f-mono)}
+.jf.add{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border-style:dashed;border-width:1.5px;font-size:12px;font-weight:700;color:var(--link)}
+.jf.add svg{width:24px;height:24px}
+.jfx{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;border:0;background:rgba(0,0,0,.55);color:#fff;font-size:15px;line-height:1;display:grid;place-items:center;padding:0}
+.jfbox .help{margin:0;padding:0 12px 12px}
+/* Header schrumpft beim Scrollen */
+.top{transition:padding .28s ease}
+.top .iconbtn{transition:width .28s ease,height .28s ease,background-color .2s ease}
+.hmark,.top h1{transition:font-size .28s ease}
+.top.shrink{padding-top:4px;padding-bottom:6px}
+.top.shrink .iconbtn{width:34px;height:34px}
+.top.shrink .iconbtn svg{transform:scale(.88)}
+.top.shrink .hmark{font-size:16px}
+.top.shrink h1{font-size:15px}
+.top .iconbtn svg{transition:transform .28s ease}
+/* Zähler: feste Ziffernbreite, damit nichts zappelt */
+.stats .stat b,.tri b,.asum .abig{font-variant-numeric:tabular-nums}
+/* Wischen-zum-Schließen: Griff deutlicher */
+.picker::before{content:"";display:block;width:40px;height:4px;border-radius:2px;background:var(--line);margin:-4px auto 2px}
+@media (prefers-reduced-motion: reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation:none!important}}
 /* Nummernkreise */
 #nrPrev{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13.5px}
 #nrPrev i{font-style:normal;color:var(--muted)}
