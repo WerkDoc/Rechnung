@@ -234,7 +234,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="50";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="51";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -487,7 +487,7 @@ export function startApp(){
     const repMonth = S.auftraege.filter(a=>a.erledigt && a.erledigt.startsWith(UI.calMonth)).length;
     const terMonth = S.auftraege.filter(a=>a.termin && a.termin.startsWith(UI.calMonth)).length;
     return `${hintHtml("kalender","<b>Kalender.</b> Blau = Termin mit dem Kunden, Grün = an dem Tag repariert. Tippen Sie auf einen Tag und dann auf +, um dort einen Termin anzulegen. <b>Mit zwei Fingern aufziehen</b> zoomt in die Wochen- und Tagesansicht.")}
-      <div class="calhead"><h2>${monthName}</h2><button class="navbtn" data-m="-1" aria-label="Voriger Monat">${ico.left}</button><button class="btn ghost sm" data-m="0">Heute</button><button class="navbtn" data-m="1" aria-label="Nächster Monat">${ico.right}</button></div>
+      <div class="calhead"><h2><span class="mlong">${monthName}</span><span class="mshort">${first.toLocaleDateString("de-DE",{month:"short"}).replace(/\.?$/,".")} ${y}</span><span class="kwpill">KW ${isoWeek(new Date(UI.calDay+"T12:00"))}</span></h2><button class="navbtn" data-m="-1" aria-label="Voriger Monat">${ico.left}</button><button class="btn ghost sm" data-m="0">Heute</button><button class="navbtn" data-m="1" aria-label="Nächster Monat">${ico.right}</button></div>
       ${calZoomSeg()}
       <div class="stats"><div class="stat"><b class="num">${terMonth}</b><small>Termine im Monat</small></div><div class="stat"><b class="num">${repMonth}</b><small>Geräte repariert</small></div></div>
       <div class="grid" id="calZoomArea">${cells}</div>
@@ -711,30 +711,29 @@ export function startApp(){
   const canVT = () => !!document.startViewTransition && !reducedMotion();
   function morphOpen(card, fn){
     if(!card || reducedMotion() || !$("#sheet").hidden){ fn(); return; }
-    const id=card.dataset.job;
-    if(canVT()){
-      card.style.viewTransitionName="wb-morph";
-      try{
-        const vt=document.startViewTransition(()=>{ card.style.viewTransitionName=""; SHEET_INSTANT=true; fn(); $("#sheet").style.viewTransitionName="wb-morph"; });
-        vt.finished.finally(()=>{ $("#sheet").style.viewTransitionName=""; }); MORPH={id}; return;
-      }catch(e){ card.style.viewTransitionName=""; }
-    }
-    const r=card.getBoundingClientRect(); SHEET_INSTANT=true; fn(); MORPH={id};
-    const sh=$("#sheet"), q=sh.getBoundingClientRect();
-    if(sh.animate){ sh.animate([{clipPath:`inset(${Math.max(0,r.top-q.top)}px ${Math.max(0,q.right-r.right)}px ${Math.max(0,q.bottom-r.bottom)}px ${Math.max(0,r.left-q.left)}px round 18px)`},{clipPath:"inset(0px 0px 0px 0px round 22px)"}],{duration:400,easing:"cubic-bezier(.2,.8,.2,1)"});
-      $("#sBody").animate([{opacity:0},{opacity:1}],{duration:280,delay:90,easing:"ease-out",fill:"backwards"});
-      $("#scrim").animate([{opacity:0},{opacity:1}],{duration:300}); }
+    const r=card.getBoundingClientRect(); SHEET_INSTANT=true; fn(); MORPH={id:card.dataset.job};
+    const sh=$("#sheet"), q=sh.getBoundingClientRect(); if(!sh.animate) return;
+    const ins=`inset(${Math.max(0,r.top-q.top)}px ${Math.max(0,q.right-r.right)}px ${Math.max(0,q.bottom-r.bottom)}px ${Math.max(0,r.left-q.left)}px round 18px)`;
+    // Fenster wächst ruhig aus der Karte heraus – Inhalt bleibt unverzerrt, blendet sanft ein
+    sh.animate([{clipPath:ins, transform:"translateY(0)"},{clipPath:"inset(0px 0px 0px 0px round 22px)", transform:"none"}],{duration:460,easing:"cubic-bezier(.22,.9,.24,1)"});
+    $("#sBody").animate([{opacity:0, transform:"translateY(14px)"},{opacity:1, transform:"none"}],{duration:340,delay:110,easing:"cubic-bezier(.2,.8,.2,1)",fill:"backwards"});
+    $(".sheet-h")?.animate([{opacity:.0},{opacity:1}],{duration:260,delay:60,fill:"backwards"});
+    $("#scrim").animate([{opacity:0},{opacity:1}],{duration:380,easing:"ease-out"});
   }
   function closeSheet(){
     const m=MORPH; MORPH=null; const sh=$("#sheet"), sc=$("#scrim");
-    const card = m && canVT() && !sh.hidden ? $(`#main [data-job="${m.id}"]`) : null, cr=card?.getBoundingClientRect();
-    if(card && cr.bottom>60 && cr.top<innerHeight-60){                                      // zurück in die Karte verwandeln
-      sh.style.viewTransitionName="wb-morph";
-      try{
-        const vt=document.startViewTransition(()=>{ sh.style.viewTransitionName=""; sh.classList.add("notrans"); sc.classList.add("notrans"); sh.classList.remove("on"); sc.classList.remove("on");
-          sc.hidden=true; sh.hidden=true; $("#sBody").innerHTML=""; $("#sFoot").innerHTML=""; card.style.viewTransitionName="wb-morph"; });
-        vt.finished.finally(()=>{ card.style.viewTransitionName=""; sh.classList.remove("notrans"); sc.classList.remove("notrans"); }); return;
-      }catch(e){ sh.style.viewTransitionName=""; }
+    const card = m && !sh.hidden && !reducedMotion() && sh.animate ? $(`#main [data-job="${m.id}"]`) : null, cr=card?.getBoundingClientRect();
+    if(card && cr.bottom>60 && cr.top<innerHeight-60){                                      // ruhig zurück in die Karte
+      const q=sh.getBoundingClientRect();
+      const ins=`inset(${Math.max(0,cr.top-q.top)}px ${Math.max(0,q.right-cr.right)}px ${Math.max(0,q.bottom-cr.bottom)}px ${Math.max(0,cr.left-q.left)}px round 18px)`;
+      $("#sBody").animate([{opacity:1},{opacity:0}],{duration:160,fill:"forwards"});
+      sc.animate([{opacity:1},{opacity:0}],{duration:320,fill:"forwards"});
+      const an=sh.animate([{clipPath:"inset(0px 0px 0px 0px round 22px)", opacity:1},{clipPath:ins, opacity:.0}],{duration:340,easing:"cubic-bezier(.4,0,.2,1)",fill:"forwards"});
+      an.onfinish=()=>{ sh.classList.add("notrans"); sc.classList.add("notrans"); sh.classList.remove("on"); sc.classList.remove("on"); sc.hidden=true; sh.hidden=true;
+        $("#sBody").innerHTML=""; $("#sFoot").innerHTML=""; sh.getAnimations().forEach(a=>a.cancel()); sc.getAnimations().forEach(a=>a.cancel()); $("#sBody").getAnimations().forEach(a=>a.cancel());
+        requestAnimationFrame(()=>{ sh.classList.remove("notrans"); sc.classList.remove("notrans"); });
+        card.animate?.([{transform:"scale(.97)"},{transform:"none"}],{duration:260,easing:"cubic-bezier(.2,.9,.3,1.2)"}); };
+      return;
     }
     $("#scrim").classList.remove("on"); $("#sheet").classList.remove("on");
     setTimeout(()=>{ $("#scrim").hidden=true; $("#sheet").hidden=true; $("#sBody").innerHTML=""; $("#sFoot").innerHTML=""; }, 230);
@@ -3722,38 +3721,64 @@ export function startApp(){
     });
   }
 
-  /* ===================== Kalender – mit zwei Fingern zoomen (flüssig: GPU + 1× pro Bild) ===================== */
+  /* ===================== Kalender – mit zwei Fingern zoomen: nächste Ansicht blendet live ein ===================== */
   (()=>{ let pz=null, raf=0;
+    const ORD=["month","week","day"];
     const dist=t=>Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY);
     const active=()=>UI.view==="kalender" && $("#sheet").hidden && $("#picker").hidden && $("#viewer").hidden;
-    const shown=sc=>{ const z=UI.calZoom||"month"; let s=sc; if(s>1 && z==="day") s=1+(s-1)*.12; if(s<1 && z==="month") s=1-(1-s)*.12; return Math.max(.72,Math.min(1.4,s)); };
-    const paint=()=>{ raf=0; if(!pz || !pz.v) return; const s=shown(pz.sc); pz.s=s; pz.o=1-Math.min(.4,Math.abs(s-1)*.9);
-      pz.v.style.transform=`scale(${s})`; pz.v.style.opacity=String(pz.o); };
+    const htmlFor=(z, day)=>{ const s0={z:UI.calZoom, d:UI.calDay, m:UI.calMonth}; UI.calZoom=z; if(day){ UI.calDay=day; UI.calMonth=day.slice(0,7); } if(z==="month") UI.calMonth=UI.calDay.slice(0,7);
+      let h=""; try{ h=vKalender(); }finally{ UI.calZoom=s0.z; UI.calDay=s0.d; UI.calMonth=s0.m; } return h; };
+    const ease=x=>1-Math.pow(1-x,2);
+    function prep(dir){                                   // dir: +1 = hineinzoomen, -1 = herauszoomen
+      if(pz.dir===dir) return; pz.prev?.remove(); pz.prev=null; pz.dir=dir; pz.target=null;
+      const i=ORD.indexOf(UI.calZoom||"month"), j=i+dir; if(j<0||j>2) return;
+      pz.target=ORD[j];
+      const el=document.createElement("div"); el.className="view zprev"; el.innerHTML=htmlFor(pz.target, dir>0?pz.day:null);
+      el.style.top=pz.v.offsetTop+"px"; el.style.opacity="0"; el.style.transformOrigin=pz.v.style.transformOrigin;
+      $("#main").appendChild(el); pz.prev=el; fillThumbs?.(el);
+    }
+    const paint=()=>{ raf=0; if(!pz) return; const sc=pz.sc;
+      if(Math.abs(sc-1)>.025) prep(sc>1?1:-1);
+      const dir=pz.dir||0, has=!!pz.prev;
+      let p = dir>0 ? (sc-1)/.38 : dir<0 ? (1-sc)/.3 : 0; p=Math.max(0,Math.min(1,p)); if(!has) p=Math.min(p,.08);
+      pz.p=p; const e=ease(p);
+      const so = dir>0 ? 1+.3*e : 1-.16*e;               // alte Ansicht zoomt mit
+      pz.v.style.transform=`scale(${so})`; pz.v.style.opacity=String(1-e*(has?1:.15));
+      if(has){ const sn = dir>0 ? .86+.14*e : 1.14-.14*e; pz.prev.style.transform=`scale(${sn})`; pz.prev.style.opacity=String(e); }
+    };
     document.addEventListener("touchstart", e=>{
       if(e.touches.length!==2 || !active() || !e.target.closest?.("#main")) return;
-      const t=e.touches, v=$("#main .view"); if(!v) return;
-      v.getAnimations?.().forEach(a=>a.cancel());
-      pz={d0:dist(t), cx:(t[0].clientX+t[1].clientX)/2, cy:(t[0].clientY+t[1].clientY)/2, sc:1, s:1, o:1, v};
-      const r=v.getBoundingClientRect(); v.style.transformOrigin=`${pz.cx-r.left}px ${pz.cy-r.top}px`; v.style.transition="none"; v.style.willChange="transform,opacity";
+      const t=e.touches, v=$("#main .view:not(.zprev)"); if(!v) return;
+      $$("#main .zprev").forEach(x=>x.remove()); v.getAnimations?.().forEach(a=>a.cancel());
+      const cx=(t[0].clientX+t[1].clientX)/2, cy=(t[0].clientY+t[1].clientY)/2;
+      const hit=document.elementFromPoint(cx,cy)?.closest?.("[data-day],[data-wday]");
+      pz={d0:dist(t), cx, cy, sc:1, p:0, v, dir:0, prev:null, day:hit?(hit.dataset.day||hit.dataset.wday):UI.calDay};
+      const r=v.getBoundingClientRect(); v.style.transformOrigin=`${cx-r.left}px ${cy-r.top}px`; v.style.transition="none"; v.style.willChange="transform,opacity";
     }, {passive:true});
     document.addEventListener("touchmove", e=>{
       if(!pz || e.touches.length!==2) return; if(e.cancelable) e.preventDefault();
       pz.sc=dist(e.touches)/pz.d0; if(!raf) raf=requestAnimationFrame(paint);
     }, {passive:false});
     const end=e=>{
-      if(!pz || (e.touches && e.touches.length>=2)) return; const p=pz; pz=null; if(raf){ cancelAnimationFrame(raf); raf=0; }
-      const v=p.v, z=UI.calZoom||"month";
-      if(p.sc>1.12 && z!=="day"){
-        const el=document.elementFromPoint(p.cx,p.cy); const c=el?.closest?.("[data-day],[data-wday]"); if(c){ UI.calDay=c.dataset.day||c.dataset.wday; UI.calMonth=UI.calDay.slice(0,7); }
-        setCalZoom(z==="month"?"week":"day", p.cx, p.cy, p);
-      } else if(p.sc<.9 && z!=="month") setCalZoom(z==="day"?"week":"month", p.cx, p.cy, p);
-      else { const from=v.style.transform||"none", op=v.style.opacity||1; v.style.transform=""; v.style.opacity=""; v.style.transition="";
-        if(v.animate && from!=="none" && !reducedMotion()) v.animate([{transform:from, opacity:op},{transform:"none", opacity:1}],{duration:220,easing:"cubic-bezier(.2,.9,.3,1.08)"}).onfinish=()=>{ v.style.willChange=""; };
-        else v.style.willChange=""; }
+      if(!pz || (e.touches && e.touches.length>=2)) return; const P=pz; pz=null; if(raf){ cancelAnimationFrame(raf); raf=0; }
+      const v=P.v, nv=P.prev, commit = nv && P.target && P.p>=.4;
+      const dur=commit?170:200, ez="cubic-bezier(.2,.8,.25,1)";
+      const vFrom={transform:v.style.transform||"none", opacity:v.style.opacity||1};
+      if(commit){
+        const sEnd = P.dir>0 ? 1.3 : .84;
+        v.animate([vFrom,{transform:`scale(${sEnd})`, opacity:0}],{duration:dur,easing:ez,fill:"forwards"});
+        const fin=nv.animate([{transform:nv.style.transform, opacity:nv.style.opacity},{transform:"none", opacity:1}],{duration:dur,easing:ez,fill:"forwards"});
+        fin.onfinish=()=>{ UI.calZoom=P.target; if(P.dir>0 && P.day){ UI.calDay=P.day; } UI.calMonth=UI.calDay.slice(0,7);
+          render(); const rv=$("#main .view"); if(rv){ rv.style.willChange=""; } };
+      } else {
+        v.animate([vFrom,{transform:"none", opacity:1}],{duration:dur,easing:"cubic-bezier(.2,.9,.3,1.08)"}).onfinish=()=>{ v.style.willChange=""; };
+        v.style.transform=""; v.style.opacity=""; v.style.transition="";
+        if(nv){ nv.animate([{transform:nv.style.transform, opacity:nv.style.opacity},{opacity:0}],{duration:dur,fill:"forwards"}).onfinish=()=>nv.remove(); }
+      }
     };
     document.addEventListener("touchend", end, {passive:true}); document.addEventListener("touchcancel", end, {passive:true});
     for(const ev of ["gesturestart","gesturechange"]) document.addEventListener(ev, e=>{ if(active()) e.preventDefault(); }, {passive:false});   // iOS: Seite nicht mitzoomen
-  })();;
+  })();;;
 
   /* ===================== Kunden-Unterschrift (Annahme / Abholung) ===================== */
   const SIG_T={annahme:{t:"Annahme",h:"Unterschrift bei Annahme",txt:"Ich übergebe das Gerät zur Reparatur und bestätige den beschriebenen Zustand (inkl. Zustandsfotos) sowie die Auftragsbedingungen."},
