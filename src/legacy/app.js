@@ -234,7 +234,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="51";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="52";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -1497,23 +1497,31 @@ export function startApp(){
         <div class="field"><label for="cNrJahr">Jahreszahl in Belegnummer</label><input type="checkbox" class="toggle" id="cNrJahr" ${f.nrJahr!==false?"checked":""}></div>
         <div class="kv" style="flex-direction:column;gap:6px"><span>Nächste Nummern</span><div id="nrPrev" class="mono"></div></div></div>
         <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 0001.</p></div>
-      <div class="group" id="grpKi"><span class="glabel">KI-Belegerkennung (Google Gemini)</span><div class="box">
+      <div class="group" id="grpKi"><span class="glabel">KI-Belegerkennung</span><div class="box">
+        <div class="field"><label for="cKiProv">Belegerkennungs-Anbieter</label><select id="cKiProv">${Object.entries(KI_PROV).map(([k,p])=>`<option value="${k}" ${kiProv()===k?"selected":""}>${esc(p.l)}${k==="gemini"?" (Standard)":""}</option>`).join("")}</select></div>
+        <div data-kp="gemini">
         <div class="field"><label for="cGemini">Gemini API-Key</label><input id="cGemini" type="password" class="mono" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="AIza…" value="${esc(f.geminiApiKey||"")}"><button type="button" class="eyebtn" id="cGemEye" aria-label="Key anzeigen">${ico.eye}</button></div>
-        <div class="field"><label for="cGemModel">Modell</label><input id="cGemModel" class="mono" list="gemModels" autocapitalize="off" spellcheck="false" placeholder="automatisch" value="${esc(f.geminiModel||"")}"><datalist id="gemModels"></datalist></div>
+        <div class="field"><label for="cGemModel">Modell</label><input id="cGemModel" class="mono" list="gemModels" autocapitalize="off" spellcheck="false" placeholder="automatisch" value="${esc(f.geminiModel||"")}"><datalist id="gemModels">${GEM_SUGGEST.map(m=>`<option value="${m}">`).join("")}</datalist></div>
+        <div class="kpchips">${["gemini-2.5-flash","gemini-1.5-flash","gemini-flash-latest"].map(m=>`<button type="button" class="chip sm" data-gm="${m}">${m}</button>`).join("")}<button type="button" class="chip sm" data-gm="">automatisch</button></div>
+        <p class="help kpnote" id="cGemNote"></p></div>
+        ${kiCfgFields(f)}
         <div class="field gemtest"><button type="button" class="btn ghost sm" id="cGemTest">Verbindung testen</button><span id="cGemRes"></span></div>
         <div class="gemsteps" id="cGemSteps" hidden></div></div>
-        <p class="help">Mit Key liest die KI beim Erfassen einer Ausgabe Händler, Datum, Rechnungs-Nr., Betrag und MwSt. aus. Dazu wird das Foto bzw. die PDF an Google gesendet – im kostenlosen Tarif darf Google die Inhalte zur Verbesserung seiner Dienste verwenden. Ohne Key oder bei einem Fehler nutzt die App automatisch die lokale Texterkennung. Den Key erstellen Sie in Google AI Studio; er wird nicht ins Backup geschrieben. Modell leer lassen = automatisch: Die App fragt Google, welche Modelle Ihr Key nutzen darf, und weicht bei Überlastung, Limit oder Zeitüberschreitung selbst auf das nächste aus.</p></div>
+        <p class="help" id="cKiHelp"></p>
+        <p class="help" data-kp="gemini">Mit Key liest die KI beim Erfassen einer Ausgabe Händler, Datum, Rechnungs-Nr., Betrag und MwSt. aus. Dazu wird das Foto bzw. die PDF an Google gesendet – im kostenlosen Tarif darf Google die Inhalte zur Verbesserung seiner Dienste verwenden. Ohne Key oder bei einem Fehler nutzt die App automatisch die lokale Texterkennung. Den Key erstellen Sie in Google AI Studio; er wird nicht ins Backup geschrieben. Modell leer lassen = automatisch: Die App fragt Google, welche Modelle Ihr Key nutzen darf, und weicht bei Überlastung, Limit oder Zeitüberschreitung selbst auf das nächste aus.</p></div>
       <div class="group"><span class="glabel">Standards</span><div class="box">
         <div class="field"><label for="cZiel">Zahlungsziel (Tage)</label><input id="cZiel" inputmode="numeric" value="${f.ziel??14}"></div>
         <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div></div></div>`, () => {
-        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), ...readNrForm()});
+        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
         toast("Firmendaten gespeichert"); });
     const nrUpd=()=>{ const f2={...S.firma, ...readNrForm()};
       $("#nrPrev").innerHTML=[["Auftrag",nextJobNrFor(f2)],["Rechnung",nextNr("rechnung",f2)],["Angebot",nextNr("angebot",f2)],["KVA",nextNr("kva",f2)]].map(([a,b])=>`<i>${a}</i><b>${esc(b)}</b>`).join(""); };
     ["cPreJob","cPreRe","cPreAn","cPreKv"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
     $("#cLogo").onchange=e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>prepareLogo(rd.result, out=>{ logo=out; $("#lPrev img").hidden=false; $("#lPrev img").src=logo; $("#lInfo").textContent="Neues Logo – zum Übernehmen „Speichern“ tippen"; }); rd.readAsDataURL(file); };
     $("#cGemEye").onclick=()=>{ const i=$("#cGemini"); i.type = i.type==="password" ? "text" : "password"; };
+    bindKiForm();
     $("#cGemTest").onclick=async()=>{ const out=$("#cGemRes"), box=$("#cGemSteps"), btn=$("#cGemTest"), key=val("cGemini");
+      if(val("cKiProv") && val("cKiProv")!=="gemini") return kiTestForm();
       if(!key){ out.className="bad"; out.textContent="Bitte zuerst einen Key eintragen"; return; }
       btn.disabled=true; out.className=""; out.innerHTML=`<span class="ocrspin" style="display:inline-block;vertical-align:-4px;width:16px;height:16px"></span> Teste …`;
       const draw=steps=>{ if(!$("#cGemSteps")) return; box.hidden=false; box.innerHTML=steps.map(x=>`<div class="${x.ok?"ok":"bad"}"><i>${x.ok?"✓":"✕"}</i><span><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span></div>`).join(""); };
@@ -1943,6 +1951,8 @@ export function startApp(){
     big:"Datei zu groß für die KI",
     parse:"Antwort der KI nicht lesbar",
     nokey:"Kein API-Key hinterlegt",
+    proxy:"Für diesen Anbieter wird der WerkDoc-Vermittler benötigt (Cloud-Anmeldung + Edge Function „beleg-ki“)",
+    noproxy:"WerkDoc-Vermittler „beleg-ki“ ist in Supabase noch nicht eingerichtet",
     fail:"Unbekannter Fehler"
   };
   const gemMsg = e => GEMINI_MSG[e?.code] || e?.message || GEMINI_MSG.fail;
@@ -2293,15 +2303,15 @@ export function startApp(){
     const txtBtn=(ki)=>ocrText?`<button type="button" class="linkbtn" id="aOcrShow" data-l="${ki?"KI-Antwort zeigen":"Erkannten Text zeigen"}">${ki?"KI-Antwort zeigen":"Erkannten Text zeigen"}</button>`:"";
     const bindBar=b=>{ const sh=$("#aOcrShow"); if(sh) sh.onclick=()=>{ const pre=$("#aOcrTxt"); if(pre){ pre.remove(); sh.textContent=sh.dataset.l; } else { sh.insertAdjacentHTML("afterend", `<pre class="ocrtxt" id="aOcrTxt">${esc(ocrText)}</pre>`); sh.textContent="Text ausblenden"; } };
       const re=$("#aOcrGo"); if(re) re.onclick=()=>{ touched.clear(); runOcr(b); }; };
-    const ocrIdle=b=>{ if(!b){ ocrBar(""); return; } ocrBar(`<div class="ocrrow idle">${ico.scan}<span><b>Beleg automatisch auslesen${geminiKey()?' <i class="kibadge">KI</i>':""}</b><small>Betrag, Datum, Händler und Rechnungs-Nr. vom Beleg übernehmen</small></span><button type="button" class="btn ghost sm" id="aOcrGo">Auslesen</button></div>${txtBtn()}`); bindBar(b); };
+    const ocrIdle=b=>{ if(!b){ ocrBar(""); return; } ocrBar(`<div class="ocrrow idle">${ico.scan}<span><b>Beleg automatisch auslesen${kiReady()?' <i class="kibadge">KI</i>':""}</b><small>Betrag, Datum, Händler und Rechnungs-Nr. vom Beleg übernehmen</small></span><button type="button" class="btn ghost sm" id="aOcrGo">Auslesen</button></div>${txtBtn()}`); bindBar(b); };
     const runOcr=async (b, opts={})=>{
       if(!b){ ocrTok++; ocrBar(""); return; }
       const tok=++ocrTok, live=()=>tok===ocrTok && !!$("#aOcr");
       let r=null, quelle="lokal", kiHinweis="", kiInfo="";
-      if(geminiKey() && !opts.lokal){
-        ocrBar(`<div class="ocrrow run ki"><span class="ocrspin" aria-hidden="true"></span><span><b>KI liest den Beleg … <i class="kibadge">KI</i></b><small>Google Gemini sucht Händler, Datum, Rechnungs-Nr., Betrag und MwSt.</small></span></div><div class="ocrprog indet"><i></i></div><small class="ocrnote" id="aKiModel">Verbindung zu Google …</small>`);
+      if(kiReady() && !opts.lokal){
+        ocrBar(`<div class="ocrrow run ki"><span class="ocrspin" aria-hidden="true"></span><span><b>KI liest den Beleg … <i class="kibadge">KI</i></b><small>${esc(KI_PROV[kiProv()].l)} sucht Händler, Datum, Rechnungs-Nr., Betrag und MwSt.</small></span></div><div class="ocrprog indet"><i></i></div><small class="ocrnote" id="aKiModel">Verbindung zu ${esc(KI_PROV[kiProv()].kurz)} …</small>`);
         const onModel=(m,n)=>{ const el=$("#aKiModel"); if(el && live()) el.textContent = n ? `Ausweichmodell ${m} wird versucht …` : `Modell ${m} · Sie können währenddessen schon tippen.`; };
-        try{ const g=await geminiBeleg(b, onModel); if(!live()) return;
+        try{ const g=await kiBeleg(b, onModel); if(!live()) return;
           if(g.betrag||g.datum||g.lieferant||g.nr){ r=g; quelle="ki"; ocrText=g.raw; kiInfo=`${g.model} · ${(g.ms/1000).toFixed(1).replace(".",",")} s${g.tried?.length?` (nach ${g.tried.map(t=>t.model+": "+(GEMINI_MSG[t.code]?.split(" – ")[0]||t.code)).join(", ")})`:""}`; }
           else kiHinweis="Die KI hat auf dem Beleg nichts Eindeutiges gefunden"; }
         catch(e){ if(!live()) return; if(e.code!=="nokey") kiHinweis="KI nicht verfügbar: "+gemMsg(e)+((e.tried||[]).length>1?` (versucht: ${e.tried.map(t=>t.model).join(", ")})`:""); }
@@ -2520,8 +2530,8 @@ export function startApp(){
         if(!r.beleg) throw new Error("Datei nicht lesbar (Foto oder PDF wählen)");
         if(r.beleg.typ==="application/pdf") pdfThumb(r.beleg.data).then(t=>{ r.thumb=t; const el=$(`#btList [data-bi="${i}"] .bthumb`); if(el){ el.classList.remove("pdf"); el.style.backgroundImage=`url('${t}')`; el.innerHTML="<i>PDF</i>"; } }).catch(()=>{});
         let res=null;
-        if(geminiKey() && !BT.noKi){
-          try{ res=await geminiBeleg(r.beleg); r.src="ki"; r.ocrText=res.raw; }
+        if(kiReady() && !BT.noKi){
+          try{ res=await kiBeleg(r.beleg); r.src="ki"; r.ocrText=res.raw; }
           catch(e){ if(["quota","key","disabled","region","offline","nokey","net"].includes(e.code)){ BT.noKi=true; BT.kiNote=`KI nicht verfügbar (${gemMsg(e).split(" – ")[0]}) – die übrigen Belege werden lokal gelesen.`; }
             r.msg="KI: "+gemMsg(e).split(" – ")[0]+" – lokal gelesen"; }
         }
@@ -2543,9 +2553,9 @@ export function startApp(){
     if(files.length>BATCH_MAX){ toast(`Höchstens ${BATCH_MAX} Belege auf einmal – die ersten ${BATCH_MAX} werden gelesen`); files=files.slice(0,BATCH_MAX); }
     BT={ rows:files.map(f=>({file:f, name:f.name||"Beleg", st:"wait", on:true, check:new Set(), d:{}, msg:""})), tok:Date.now(), running:true, noKi:false, kiNote:"" };
     openSheet(`Mehrere Belege <small>${files.length}</small>`, `
-      <div class="btprog"><div class="btprogrow"><b id="btProgTxt">Verarbeite Beleg 1 von ${files.length} …</b><span class="kibadge" ${geminiKey()?"":"hidden"}>KI</span></div>
+      <div class="btprog"><div class="btprogrow"><b id="btProgTxt">Verarbeite Beleg 1 von ${files.length} …</b><span class="kibadge" ${kiReady()?"":"hidden"}>KI</span></div>
         <div class="ocrprog" id="btProg"><i></i></div>
-        <small class="ocrnote">${geminiKey()?"Google Gemini liest die Belege nacheinander aus.":"Die Belege werden auf dem Gerät ausgelesen (für KI-Erkennung Gemini-Key unter Firmendaten eintragen)."} Werte lassen sich gleich hier anpassen.</small>
+        <small class="ocrnote">${kiReady()?`${esc(KI_PROV[kiProv()].l)} liest die Belege nacheinander aus.`:"Die Belege werden auf dem Gerät ausgelesen (für KI-Erkennung unter Firmendaten einen Anbieter einrichten)."} Werte lassen sich gleich hier anpassen.</small>
         <small class="ocrnote kiwarn" id="btNote" hidden></small></div>
       <div id="btList" class="btlist"></div>
       <p class="help">Gelb = bitte prüfen · Rot = Händler oder Betrag fehlt. Häkchen „Übernehmen“ entfernen, um einen Beleg auszulassen.</p>`,
@@ -3364,7 +3374,7 @@ export function startApp(){
   async function exportBackup(){
     const belegBilder={}; for(const x of S.ausgaben) if(x.bild){ const b=await BILD.get(x.id); if(b) belegBilder[x.id]=b; }
     for(const a of S.auftraege) for(const f of (a.fotos||[])){ const b=await BILD.get(f.id); if(b) belegBilder[f.id]=b; }
-    const data = { app:BACKUP_APP, version:2, exportiert:nowStamp(), firma:{...S.firma, geminiApiKey:undefined}, kunden:S.kunden, auftraege:S.auftraege, rechnungen:S.rechnungen, teile:S.teile, ausgaben:S.ausgaben, belegBilder };
+    const data = { app:BACKUP_APP, version:2, exportiert:nowStamp(), firma:{...S.firma, geminiApiKey:undefined, kiCfg:undefined}, kunden:S.kunden, auftraege:S.auftraege, rechnungen:S.rechnungen, teile:S.teile, ausgaben:S.ausgaben, belegBilder };
     const filename = `repairmobile-backup-${today()}.json`;
     saveFile(filename, new Blob([JSON.stringify(data, null, 2)], {type:"application/json"}), `Backup gespeichert: ${filename}`);
   }
@@ -3390,7 +3400,7 @@ export function startApp(){
   async function applyBackup(data){
     if(!data) return;
     UI.pendingImport = null;
-    S.firma = {...data.firma, geminiApiKey: data.firma.geminiApiKey || S.firma.geminiApiKey || "", geminiModel: data.firma.geminiModel || S.firma.geminiModel || ""};
+    S.firma = {...data.firma, geminiApiKey: data.firma.geminiApiKey || S.firma.geminiApiKey || "", geminiModel: data.firma.geminiModel || S.firma.geminiModel || "", kiCfg: data.firma.kiCfg || S.firma.kiCfg, kiAnbieter: data.firma.kiAnbieter || S.firma.kiAnbieter};
     const before={}; for(const c of COLLS) before[c]=S[c].map(x=>x.id);
     for(const c of COLLS) S[c] = data[c].map(o=>({...o}));
     try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){}
@@ -3840,6 +3850,158 @@ export function startApp(){
       if(!$("#sheet").hidden && $("#sTitle").textContent.includes(fresh.nr)) openJobDetail(id);
     };
     window.addEventListener("resize",fit); requestAnimationFrame(fit);
+  }
+
+  /* ===================== KI-Belegerkennung: mehrere Anbieter ===================== */
+  const KI_PROV = {
+    gemini:{l:"Google Gemini", kurz:"Google", direkt:true},
+    mindee:{l:"Mindee API", kurz:"Mindee", direkt:true},
+    veryfi:{l:"Veryfi API", kurz:"Veryfi", direkt:false},
+    klippa:{l:"Klippa SpendControl / DocHorizon API", kurz:"Klippa", direkt:true},
+    docai:{l:"Google Cloud Document AI (Invoice Parser)", kurz:"Google Cloud", direkt:false}
+  };
+  const GEM_SUGGEST=["gemini-2.5-flash","gemini-flash-latest","gemini-2.5-pro","gemini-flash-lite-latest","gemini-1.5-flash"];
+  const KI_FIELDS = {
+    mindee:[["key","API-Key (V2)","password","md_…"],["modelId","Modell-ID","text","UUID aus dem Mindee-Dashboard"]],
+    veryfi:[["clientId","Client-ID","text","vrf…"],["user","Benutzername","text","z. B. oleg.schaefer"],["key","API-Key","password",""]],
+    klippa:[["key","API-Key","password",""],["preset","Konfiguration (Slug)","text","optional, z. B. financial"]],
+    docai:[["project","Projekt-ID","text","mein-projekt-123"],["location","Region","select","eu|us"],["processor","Prozessor-ID","text","z. B. 1a2b3c4d5e6f"],["sa","Dienstkonto-Schlüssel (JSON)","textarea","Inhalt der heruntergeladenen JSON-Datei einfügen"]]
+  };
+  const KI_HELP = {
+    mindee:"Im Mindee-Dashboard das Modell „Invoice“ oder „Receipt“ aus dem Katalog hinzufügen und dessen Modell-ID hier eintragen. Mindee wird zuerst direkt angesprochen; blockiert der Browser das, läuft es automatisch über den WerkDoc-Vermittler.",
+    veryfi:"Veryfi erlaubt aus Sicherheitsgründen keine Aufrufe direkt aus Web-Apps. Die Belege laufen deshalb immer über den WerkDoc-Vermittler in Ihrem Supabase-Konto (einmalig einrichten).",
+    klippa:"Klippa DocHorizon (heute „Doxis AI.dp“), Modell „Financial“. Wird zuerst direkt angesprochen, sonst über den WerkDoc-Vermittler.",
+    docai:"Document AI akzeptiert keinen einfachen API-Key, sondern nur ein Google-Dienstkonto. Im Google-Cloud-Projekt einen „Invoice Parser“ (oder „Expense Parser“ für Kassenbons) anlegen, ein Dienstkonto mit der Rolle „Document AI API User“ erstellen und dessen JSON-Schlüssel hier einfügen. Läuft immer über den WerkDoc-Vermittler."
+  };
+  const kiProv = () => KI_PROV[S.firma.kiAnbieter] ? S.firma.kiAnbieter : "gemini";
+  const kiCfgOf = (p, f=S.firma) => (f.kiCfg||{})[p] || {};
+  function kiCfgOk(p, c){ return p==="mindee" ? !!(c.key && c.modelId) : p==="veryfi" ? !!(c.clientId && c.user && c.key) : p==="klippa" ? !!c.key : p==="docai" ? !!(c.project && c.processor && c.sa) : false; }
+  function kiReady(){ const p=kiProv(); return p==="gemini" ? !!geminiKey() : kiCfgOk(p, kiCfgOf(p)); }
+  async function kiBeleg(beleg, onModel){ const p=kiProv(); return p==="gemini" ? geminiBeleg(beleg, onModel) : provBeleg(p, beleg, onModel); }
+
+  function kiCfgFields(f){
+    return Object.entries(KI_FIELDS).map(([p,fields])=>{ const c=kiCfgOf(p,f);
+      return `<div data-kp="${p}" hidden>${fields.map(([k,l,t,ph])=>{ const id=`cKi_${p}_${k}`, v=esc(c[k]||"");
+        if(t==="select") return `<div class="field"><label for="${id}">${l}</label><select id="${id}">${ph.split("|").map(o=>`<option value="${o}" ${(c[k]||"eu")===o?"selected":""}>${o==="eu"?"EU (eu)":"USA (us)"}</option>`).join("")}</select></div>`;
+        if(t==="textarea") return `<div class="field stack"><label for="${id}">${l}</label><textarea id="${id}" class="mono" autocapitalize="off" spellcheck="false" placeholder="${esc(ph)}">${v}</textarea></div>`;
+        return `<div class="field"><label for="${id}">${l}</label><input id="${id}" type="${t}" class="mono" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${esc(ph)}" value="${v}"></div>`; }).join("")}</div>`; }).join("");
+  }
+  function readKiCfg(){ const out={...(S.firma.kiCfg||{})};
+    for(const [p,fields] of Object.entries(KI_FIELDS)){ const c={}; for(const [k] of fields){ const el=$(`#cKi_${p}_${k}`); if(el) c[k]=el.value.trim(); } out[p]=c; }
+    return out; }
+  function bindKiForm(){
+    const sel=$("#cKiProv"); if(!sel) return;
+    const upd=()=>{ const p=sel.value; $$("#grpKi [data-kp]").forEach(el=>el.hidden = el.dataset.kp!==p);
+      $("#cKiHelp").textContent = KI_HELP[p] || ""; $("#cKiHelp").hidden = !KI_HELP[p];
+      $("#cGemRes").textContent=""; $("#cGemSteps").hidden=true; };
+    sel.onchange=upd; upd();
+    const note=()=>{ const m=val("cGemModel"), n=$("#cGemNote");
+      if(/gemini-1\.5/i.test(m)){ n.className="help kpnote warn"; n.textContent="Hinweis: Google hat die 1.5-Modelle abgeschaltet. Die App versucht es trotzdem und weicht bei „Modell nicht verfügbar“ automatisch auf gemini-2.5-flash bzw. das neueste Flash-Modell aus."; }
+      else if(m){ n.className="help kpnote"; n.textContent=`Feste Vorgabe: ${m} – fällt es aus, nimmt die App automatisch das nächste passende Modell.`; }
+      else { n.className="help kpnote"; n.textContent="Automatisch: die App wählt das beste verfügbare Flash-Modell (derzeit meist gemini-2.5-flash bzw. gemini-flash-latest)."; } };
+    $("#cGemModel").oninput=note; note();
+    $$("#grpKi [data-gm]").forEach(b=>b.onclick=()=>{ $("#cGemModel").value=b.dataset.gm; note(); });
+  }
+
+  /* Vermittler (Supabase Edge Function „beleg-ki“) */
+  async function kiProxy(body, timeout=70000){
+    if(!(CLOUD?.user && typeof sb!=="undefined" && sb)) throw new GeminiError("proxy", GEMINI_MSG.proxy);
+    let token=""; try{ token=(await sb.auth.getSession())?.data?.session?.access_token||""; }catch(e){}
+    if(!token) throw new GeminiError("proxy", GEMINI_MSG.proxy);
+    const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(), timeout);
+    let res;
+    try{ res=await fetch(`${SB_URL}/functions/v1/beleg-ki`, {method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`, apikey:SB_KEY}, body:JSON.stringify(body), signal:ctl.signal}); }
+    catch(e){ throw new GeminiError(e.name==="AbortError"?"timeout":(navigator.onLine===false?"offline":"net"), e.message); }
+    finally{ clearTimeout(tm); }
+    const j=await res.json().catch(()=>null);
+    if(res.status===404) throw new GeminiError("noproxy", GEMINI_MSG.noproxy);
+    if(!res.ok || !j?.ok) throw new GeminiError(j?.code||"fail", j?.error || `Vermittler: ${res.status}`);
+    return j;
+  }
+
+  /* Direktaufrufe (wenn der Anbieter es aus dem Browser erlaubt) */
+  const dataUrlBlob2 = (mime, b64) => new Blob([Uint8Array.from(atob(b64), c=>c.charCodeAt(0))], {type:mime});
+  async function provDirect(p, c, mime, data, name){
+    const httpErr=async res=>{ const t=await res.text().catch(()=> ""); let m=t; try{ const j=JSON.parse(t); m=j?.detail||j?.error?.message||j?.message||j?.error||t; }catch(e){}
+      const s=res.status; return new GeminiError(s===401||s===403?"key":s===402||s===429?"quota":s===413?"big":s>=500?"busy":"fail", `${s}: ${String(m).slice(0,200)}`); };
+    if(p==="mindee"){
+      const base="https://api-v2.mindee.net", fd=new FormData(); fd.append("model_id", c.modelId); fd.append("file", dataUrlBlob2(mime,data), name);
+      const enq=await fetch(`${base}/v2/products/extraction/enqueue`, {method:"POST", headers:{Authorization:c.key}, body:fd}); if(!enq.ok) throw await httpErr(enq);
+      const job=(await enq.json())?.job; if(!job?.id) throw new GeminiError("parse","Mindee: keine Auftrags-ID");
+      const t0=Date.now();
+      while(Date.now()-t0<50000){ await new Promise(r=>setTimeout(r,1200));
+        const r=await fetch(`${base}/v2/jobs/${job.id}?redirect=false`, {headers:{Authorization:c.key}}); if(!r.ok) throw await httpErr(r);
+        const j=(await r.json())?.job;
+        if(j?.status==="Failed") throw new GeminiError("fail","Mindee: "+(j?.error?.detail||"Verarbeitung fehlgeschlagen"));
+        if(j?.status==="Processed"){ const res=await fetch(j.result_url||`${base}/v2/products/extraction/results/${j.id}`, {headers:{Authorization:c.key}}); if(!res.ok) throw await httpErr(res); return await res.json(); } }
+      throw new GeminiError("timeout","Mindee hat nicht rechtzeitig geantwortet");
+    }
+    if(p==="klippa"){
+      const body={documents:[{content_type:mime, data}]}; if(c.preset) body.preset={slug:c.preset};
+      const res=await fetch("https://dochorizon.klippa.com/api/services/document_capturing/v1/financial", {method:"POST", headers:{"Content-Type":"application/json","x-api-key":c.key}, body:JSON.stringify(body)});
+      if(!res.ok) throw await httpErr(res); return await res.json();
+    }
+    throw new GeminiError("proxy", GEMINI_MSG.proxy);
+  }
+  const DIRECT_BLOCKED = new Set();   // Anbieter, bei denen der Browser den Direktaufruf blockiert hat → gleich über den Vermittler
+  async function provBeleg(p, beleg, onModel){
+    const c=kiCfgOf(p); if(!kiCfgOk(p,c)) throw new GeminiError("nokey", GEMINI_MSG.nokey);
+    const img=await geminiImageData(beleg), mime=img.mime_type, data=img.data, name=(beleg.name||"beleg").replace(/[^\w.\-]+/g,"_");
+    if(data.length > 14*1024*1024) throw new GeminiError("big","Datei zu groß");
+    const t0=performance.now(); let raw, via="direkt";
+    const viaProxy=async()=>{ via="Vermittler"; onModel?.(`${KI_PROV[p].kurz} über WerkDoc-Vermittler`, 0); return (await kiProxy({provider:p, mime, data, name, cfg:c})).raw; };
+    if(KI_PROV[p].direkt && !DIRECT_BLOCKED.has(p)){
+      onModel?.(KI_PROV[p].kurz, 0);
+      try{ raw=await provDirect(p, c, mime, data, name); }
+      catch(e){ if(e instanceof TypeError || e.name==="TypeError"){ DIRECT_BLOCKED.add(p); raw=await viaProxy(); } else throw e; }   // TypeError = vom Browser blockiert (CORS)
+    } else raw=await viaProxy();
+    const n=provNormalize(p, raw);
+    const r=geminiParse(JSON.stringify(n));
+    return { ...r, model:`${KI_PROV[p].kurz}${via==="Vermittler"?" (Vermittler)":""}`, ms:Math.round(performance.now()-t0), tried:[], raw:JSON.stringify(raw).slice(0,4000) };
+  }
+  // Antworten der Anbieter → gemeinsames Format {haendler, datum, rechnungsnr, brutto, mwst_prozent}
+  const unv = x => (x && typeof x==="object" && "value" in x) ? x.value : x;
+  function deepFind(o, test, d=0){ if(!o || typeof o!=="object" || d>8) return null; if(test(o)) return o;
+    for(const v of Array.isArray(o)?o:Object.values(o)){ const r=deepFind(v,test,d+1); if(r) return r; } return null; }
+  const pctNorm = v => { let n=typeof v==="string" ? parseFloat(v.replace(",",".").replace(/[^\d.\-]/g,"")) : +v; if(!isFinite(n)) return null; if(n>0 && n<1) n*=100; return Math.round(n*10)/10; };
+  const moneyNorm = v => { if(v==null||v==="") return null; if(typeof v==="number") return v;
+    if(typeof v==="object" && ("units" in v || "nanos" in v)) return (+v.units||0) + (+v.nanos||0)/1e9;
+    const s=String(v).replace(/[^\d,.\-]/g,""); return parseNum(s.includes(",") ? s : s); };
+  function provNormalize(p, j){
+    if(p==="mindee"){ const f=j?.inference?.result?.fields||{}, g=k=>unv(f[k]);
+      const tax=f.taxes?.items?.find?.(t=>unv(t?.fields?.rate)!=null);
+      return {haendler:g("supplier_name")||g("merchant_name")||null, datum:g("date")||g("purchase_date")||null, rechnungsnr:g("invoice_number")||g("receipt_number")||null,
+        brutto:moneyNorm(g("total_amount")), mwst_prozent:tax?pctNorm(unv(tax.fields.rate)):null}; }
+    if(p==="veryfi"){ const t=(j?.tax_lines||[]).find(x=>x?.rate!=null);
+      return {haendler:j?.vendor?.name||j?.vendor?.raw_name||null, datum:String(j?.date||"").slice(0,10)||null, rechnungsnr:j?.invoice_number||null, brutto:moneyNorm(j?.total), mwst_prozent:t?pctNorm(t.rate):null}; }
+    if(p==="klippa"){ const fin=deepFind(j, o=>!Array.isArray(o) && ("total_amount" in o || "document_date" in o)) || {};
+      const m=unv(fin.merchant)||{}, items=unv(unv(fin.tax_details)?.items)||[];
+      const vat=(Array.isArray(items)?items:[]).find(x=>/vat|mwst|ust/i.test(unv(x?.type)||"")) || (Array.isArray(items)?items[0]:null);
+      return {haendler:unv(m.brand_name)||unv(m.company_name)||unv(m.name)||unv(fin.merchant_name)||null, datum:String(unv(fin.document_date)||unv(fin.date)||"").slice(0,10)||null,
+        rechnungsnr:unv(fin.invoice_number)||null, brutto:moneyNorm(unv(fin.total_amount)), mwst_prozent:vat?pctNorm(unv(vat.percentage)??unv(vat.rate)):null}; }
+    if(p==="docai"){ const ents=j?.document?.entities||[], all=[]; const walk=a=>a.forEach(e=>{ all.push(e); if(e.properties) walk(e.properties); }); walk(ents);
+      const get=(...ts)=>all.find(e=>ts.includes(e.type));
+      const txt=e=>e?.normalizedValue?.text || e?.mentionText || null;
+      const dt=e=>{ const d=e?.normalizedValue?.dateValue; return d?.year ? `${d.year}-${pad(d.month)}-${pad(d.day)}` : txt(e); };
+      const money=e=>{ const mv=e?.normalizedValue?.moneyValue; return mv ? moneyNorm(mv) : moneyNorm(txt(e)); };
+      const rate=get("vat/tax_rate","tax_rate");
+      return {haendler:txt(get("supplier_name","supplier_display_name")), datum:dt(get("invoice_date","receipt_date","purchase_date")), rechnungsnr:txt(get("invoice_id","receipt_id")),
+        brutto:money(get("total_amount")), mwst_prozent:rate?pctNorm(txt(rate)):null}; }
+    return {};
+  }
+  async function kiTestForm(){
+    const out=$("#cGemRes"), box=$("#cGemSteps"), btn=$("#cGemTest"), p=val("cKiProv"), c=readKiCfg()[p]||{};
+    const steps=[]; const draw=()=>{ box.hidden=false; box.innerHTML=steps.map(x=>`<div class="${x.ok?"ok":"bad"}"><i>${x.ok?"✓":"✕"}</i><span><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span></div>`).join(""); };
+    const fin=ok=>{ btn.disabled=false; out.className=ok?"good":"bad"; out.textContent=ok?"✓ Bereit":"✕ Noch nicht bereit – Details unten"; };
+    btn.disabled=true; out.className=""; out.textContent="Teste …";
+    if(!kiCfgOk(p,c)){ steps.push({ok:false, t:"Zugangsdaten", d:"Bitte alle Pflichtfelder ausfüllen"}); draw(); return fin(false); }
+    if(p==="docai"){ try{ const sa=JSON.parse(c.sa); if(!sa.client_email||!sa.private_key) throw 0; steps.push({ok:true, t:"Dienstkonto", d:sa.client_email}); }catch(e){ steps.push({ok:false, t:"Dienstkonto", d:"Das ist kein gültiger JSON-Schlüssel eines Google-Dienstkontos"}); draw(); return fin(false); } }
+    else steps.push({ok:true, t:"Zugangsdaten", d:"Vollständig"});
+    draw();
+    try{ const j=await kiProxy({provider:p, ping:true, cfg:c}, 25000); steps.push({ok:true, t:"WerkDoc-Vermittler", d:`Erreichbar (Version ${j.version})${p==="docai"?" · Google-Anmeldung mit dem Dienstkonto klappt":""}`}); draw(); fin(true); }
+    catch(e){
+      if(KI_PROV[p].direkt && e.code==="proxy"){ steps.push({ok:true, t:"Direktverbindung", d:"Ohne Cloud-Anmeldung wird der Anbieter direkt angesprochen. Ob er das erlaubt, zeigt sich beim ersten Beleg."}); draw(); return fin(true); }
+      steps.push({ok:false, t:"WerkDoc-Vermittler", d:gemMsg(e)}); draw(); fin(false); }
   }
 
   /* ---------- start ---------- */
