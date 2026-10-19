@@ -167,7 +167,12 @@ main{max-width:720px;margin:0 auto;padding:16px 16px 140px}
 .hint b{color:var(--link)}
 .hint button{margin-left:auto;background:none;border:0;color:var(--muted);font-size:18px;line-height:1;padding:0 2px}
 
-.tabs{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom,0px));width:min(560px,calc(100% - 20px));background:var(--bar);border-radius:26px;display:grid;grid-template-columns:repeat(5,1fr);padding:6px;z-index:30;box-shadow:var(--shadow)}
+.tabs{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(10px + env(safe-area-inset-bottom,0px));width:min(560px,calc(100% - 20px));border-radius:26px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));padding:6px;z-index:30;
+  /* Liquid Glass */
+  background:rgba(15,23,42,.75);-webkit-backdrop-filter:blur(20px) saturate(180%);backdrop-filter:blur(20px) saturate(180%);
+  border:1px solid rgba(255,255,255,.07);border-top:1px solid rgba(255,255,255,.15);
+  box-shadow:0 -6px 22px rgba(120,190,255,.10),inset 0 1px 0 rgba(255,255,255,.08),0 12px 30px rgba(5,10,20,.35)}
+.tab{min-width:0}
 .tab{background:none;border:0;color:var(--bar-muted);display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 0 6px;border-radius:18px;font-size:11.5px;font-weight:600;position:relative}
 .tab svg{width:22px;height:22px}
 .tab[aria-current="page"]{color:var(--tab-on)}
@@ -831,7 +836,7 @@ html.auth-open, html.auth-open body{overflow:hidden}
 .si-termin{background:var(--amber-soft);color:var(--amber)}
 mark{background:color-mix(in srgb, var(--hi) 30%, transparent);color:inherit;border-radius:3px;padding:0 1px}
 .tabs{transition:width .3s ease,padding .3s ease,border-radius .3s ease}
-.tab .tlab{display:block;max-height:18px;opacity:1;overflow:hidden;transition:max-height .25s ease,opacity .18s ease}
+.tab .tlab{display:block;max-width:100%;white-space:nowrap;text-overflow:ellipsis;font-size:min(11.5px,2.65vw);letter-spacing:-.015em;max-height:18px;opacity:1;overflow:hidden;transition:max-height .25s ease,opacity .18s ease}
 .tab svg{transition:width .25s ease,height .25s ease}
 .tabs.compact{width:min(320px,calc(100% - 96px));padding:4px;border-radius:30px}
 .tabs.compact .tab{padding:11px 0;gap:0}
@@ -877,7 +882,7 @@ body:has(.selbar) .toast{bottom:calc(168px + env(safe-area-inset-bottom,0px))}
 .tabs.compact{--tp:4px}
 .tab{z-index:1}
 .tab-pill{position:absolute;z-index:0;top:var(--tp);height:calc(100% - 2 * var(--tp));width:calc((100% - 2 * var(--tp)) / 5);left:calc(var(--tp) + var(--i) * (100% - 2 * var(--tp)) / 5);border-radius:20px;background:rgba(255,255,255,.07);transition:left .42s cubic-bezier(.34,1.36,.5,1),top .3s ease,height .3s ease;pointer-events:none}
-.tab-pill::before{content:"";position:absolute;left:50%;top:calc(-1 * var(--tp));width:28px;height:3px;margin-left:-14px;border-radius:0 0 3px 3px;background:var(--tab-on);transition:background .25s ease,top .3s ease}
+.tab-pill::before{content:"";position:absolute;left:50%;transform:translateX(-50%);top:calc(1px - var(--tp));width:26px;height:3px;border-radius:3px;box-shadow:0 0 8px var(--tab-on);background:var(--tab-on);transition:background .25s ease,top .3s ease}
 #viewTitle{display:inline-block}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}.pill.s-fertig,.pill.s-fertig::before,.day .dot.r{animation:none}}
 @media (max-width:380px){.field label{min-width:90px}.tab{font-size:10.5px}.big{font-size:34px}.layouts{grid-template-columns:repeat(2,minmax(0,1fr))}.top h1{font-size:18px}}
