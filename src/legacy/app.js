@@ -234,6 +234,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
+  const APP_VER="45";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -261,37 +262,45 @@ export function startApp(){
     const h=$("#viewTitle"); if(h.animate) h.animate([{opacity:0, transform:`translateY(6px)`},{opacity:1, transform:"none"}], {duration:300, easing:EASE_OUT});
   }
   $("#tabs").addEventListener("click", e => { const b=e.target.closest(".tab"); if(!b) return; switchView(b.dataset.v); });
-  /* Wischen nach links/rechts auf dem Hauptbildschirm → nächster/vorheriger Tab */
-  (()=>{ const main=$("#main"), body=document.body; let sw=null;
-    const hScroll = el => { for(let n=el; n && n!==main; n=n.parentElement){ const o=getComputedStyle(n).overflowX; if((o==="auto"||o==="scroll") && n.scrollWidth>n.clientWidth+2) return true; } return false; };
-    // auf dem ganzen Bildschirm lauschen – auch die leere Fläche unter dem Inhalt zählt (kurze Seiten)
-    const onPage = el => el===body || el===document.documentElement || !!el.closest?.("#main");
-    const overlayOpen = () => !!document.querySelector("#sheet:not([hidden]),#picker:not([hidden]),#viewer:not([hidden]),#auth:not([hidden]),.bfull,#splash,#menu:not([hidden])");
-    document.addEventListener("touchstart", e => {
-      sw=null; if(e.touches.length!==1 || UI.sel) return;
-      const t=e.touches[0], el=e.target;
-      if(!onPage(el) || overlayOpen()) return;
-      if(t.clientX<18 || t.clientX>innerWidth-18) return;                                   // iOS-Randgesten nicht stören
-      if(el.closest("input,textarea,select,[contenteditable],canvas,.nodrag") || hScroll(el)) return;
-      sw={x:t.clientX, y:t.clientY, t:performance.now(), lock:0, dx:0};
-    }, {passive:true});
-    document.addEventListener("touchmove", e => {
-      if(!sw) return; const t=e.touches[0], dx=t.clientX-sw.x, dy=t.clientY-sw.y;
-      if(!sw.lock){ if(Math.abs(dx)<12 && Math.abs(dy)<12) return; sw.lock = Math.abs(dx)>Math.abs(dy) ? 1 : -1; }   // eher waagerecht → Wischen
+  /* Wischen nach links/rechts → nächster/vorheriger Tab.
+     Robust für iPhone: lauscht früh (Capture) auf Touch- UND Pointer-Eingaben, nur eindeutige Ausschlüsse. */
+  (()=>{ let sw=null, lastFire=0;
+    const BLOCK="input,textarea,select,[contenteditable],.chips,.nodrag,#tabs,.top,.sheet,.picker,.viewer,.menu,.auth,.bfull,.tour,.selbar,.fab,.scrim,.splash";
+    const open = id => { const e=document.getElementById(id); return !!e && !e.hidden; };
+    const start = (x,y,el,src) => {
+      sw=null; if(UI.sel || open("sheet") || open("picker") || open("viewer") || open("tour")) return;
+      if(el && el.closest && el.closest(BLOCK)) return;
+      sw={x, y, t:performance.now(), lock:0, dx:0, src};
+    };
+    const move = (x,y,src) => {
+      if(!sw || sw.src!==src) return; const dx=x-sw.x, dy=y-sw.y;
+      if(!sw.lock){ if(Math.abs(dx)<12 && Math.abs(dy)<12) return; sw.lock = Math.abs(dx)>Math.abs(dy) ? 1 : -1; }
       if(sw.lock!==1) return;
       sw.dx=dx; const i=TAB_ORDER.indexOf(UI.view), edge=(dx>0&&i===0)||(dx<0&&i===TAB_ORDER.length-1);
       const v=$("#main .view"); if(v && !reducedMotion()){ const m=edge?dx*.12:dx*.35; v.style.transform=`translateX(${m}px)`; v.style.opacity=String(1-Math.min(.35,Math.abs(m)/300)); }
-    }, {passive:true});
-    const end = () => {
-      if(!sw || sw.lock!==1){ sw=null; return; }
-      const {dx,t}=sw; sw=null; const v=$("#main .view"), i=TAB_ORDER.indexOf(UI.view);
-      const fast=Math.abs(dx)/(performance.now()-t) > .35, j = (Math.abs(dx)>55 || (fast && Math.abs(dx)>28)) ? i+(dx<0?1:-1) : i;
+    };
+    const end = src => {
+      if(!sw || sw.src!==src) return;
+      const s0=sw; sw=null; const v=$("#main .view");
       const reset = () => { if(v){ v.style.transform=""; v.style.opacity=""; } };
-      if(j!==i && j>=0 && j<TAB_ORDER.length){ if(reducedMotion()) reset(); switchView(TAB_ORDER[j]); return; }
+      if(s0.lock!==1){ reset(); return; }
+      const i=TAB_ORDER.indexOf(UI.view), dx=s0.dx, fast=Math.abs(dx)/(performance.now()-s0.t) > .35;
+      const j = (Math.abs(dx)>55 || (fast && Math.abs(dx)>28)) ? i+(dx<0?1:-1) : i;
+      if(j!==i && j>=0 && j<TAB_ORDER.length && performance.now()-lastFire>350){ lastFire=performance.now(); if(reducedMotion()) reset(); switchView(TAB_ORDER[j]); return; }
       if(v && v.animate && v.style.transform){ const from=v.style.transform, op=v.style.opacity||1; reset();
         v.animate([{transform:from, opacity:op},{transform:"none", opacity:1}], {duration:260, easing:EASE_OUT}); } else reset();
     };
-    document.addEventListener("touchend", end, {passive:true}); document.addEventListener("touchcancel", end, {passive:true});
+    const O={passive:true, capture:true};
+    window.addEventListener("touchstart", e => { if(e.touches.length!==1){ sw=null; return; } const t=e.touches[0]; start(t.clientX,t.clientY,e.target,"t"); }, O);
+    window.addEventListener("touchmove",  e => { const t=e.touches[0]; if(t) move(t.clientX,t.clientY,"t"); }, O);
+    window.addEventListener("touchend",   () => end("t"), O);
+    window.addEventListener("touchcancel",() => end("t"), O);
+    // Rückfall nur für Geräte ohne Touch-Ereignisse (sonst würden sich beide gegenseitig stören)
+    if("ontouchstart" in window) return;
+    window.addEventListener("pointerdown", e => { if(e.pointerType==="touch") start(e.clientX,e.clientY,e.target,"p"); }, O);
+    window.addEventListener("pointermove", e => { if(e.pointerType==="touch") move(e.clientX,e.clientY,"p"); }, O);
+    window.addEventListener("pointerup",   e => { if(e.pointerType==="touch") end("p"); }, O);
+    window.addEventListener("pointercancel",e => { if(e.pointerType==="touch") end("p"); }, O);
   })();
   $("#fab").addEventListener("click", () => {
     if(UI.view==="kunden") openKunde(); else if(UI.view==="rechnungen" && UI.docSeg==="ausgaben") newAusgabe(); else if(UI.view==="rechnungen") openDocEditor({typ: UI.docSeg==="angebote"?"angebot":"rechnung"});
@@ -489,7 +498,7 @@ export function startApp(){
           <div class="exrow"><span><b>Ausgaben</b><small>${ausCount} im Zeitraum · Netto, Vorsteuer, Brutto</small></span><button class="btn sm" data-act="csvAus" ${ausCount?"":"disabled"}>${ico.dl}CSV</button></div>
           <div class="exrow"><span><b>Komplettpaket (ZIP)</b><small>Beide Tabellen plus alle Belegfotos und PDFs</small></span><button class="btn sm accent" data-act="paket" ${csvCount||ausCount?"":"disabled"}>${ico.dl}ZIP</button></div>
         </div></div>
-      <p class="syncnote">${mode==="db"?"Gespeichert in Ihrem Konto – privat, auf allen Geräten gleich.":"Gespeichert in diesem Browser."}</p>`;
+      <p class="syncnote">${mode==="db"?"Gespeichert in Ihrem Konto – privat, auf allen Geräten gleich.":"Gespeichert in diesem Browser."}<br><small style="opacity:.7">WerkDoc · App-Stand ${APP_VER}</small></p>`;
   }
 
   /* ---------- view bindings ---------- */
