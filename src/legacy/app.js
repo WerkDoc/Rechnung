@@ -218,6 +218,31 @@ export function startApp(){
     const used=Math.max(runNo(scope, y), nrMax(all, stem));
     const start = typ==="rechnung" && +f.reStartYear===y ? (+f.reStart||1)-1 : 0; return freeNr(stem, 1+Math.max(used,start), all); }
   const shownNr = r => r.nr || `${nrStem(dTyp(r))}····`;
+  /* Steuer-Modus: A = Kleinunternehmer, B = Regelbesteuerung Brutto-Eingabe, C = Regelbesteuerung Netto-Eingabe */
+  const TAXM = {
+    ku:{k:"A", t:"Kleinunternehmer (§ 19 UStG)", s:"Keine Umsatzsteuer – der eingegebene Preis ist der Endpreis."},
+    brutto:{k:"B", t:"Regelbesteuerung · Brutto-Eingabe", s:"Ihre Preise sind Endpreise inkl. MwSt. – die MwSt. wird automatisch herausgerechnet."},
+    netto:{k:"C", t:"Regelbesteuerung · Netto-Eingabe", s:"Ihre Preise sind Netto – die MwSt. wird sauber oben draufgerechnet."}
+  };
+  const firmaTaxMode = (f=S.firma) => f.kleinunternehmer ? "ku" : f.netto ? "netto" : "brutto";
+  const docTaxMode = r => dKu(r) ? "ku" : dBrutto(r) ? "brutto" : "netto";
+  function taxExample(m, p=19){ const q=p||19;
+    return m==="ku" ? "Beispiel: 100,00 € eingegeben → Kunde zahlt 100,00 €, keine MwSt. auf dem Beleg"
+      : m==="brutto" ? `Beispiel: 100,00 € eingegeben → Kunde zahlt 100,00 € (darin ${eur(r2(100-100/(1+q/100)))} MwSt.)`
+      : `Beispiel: 100,00 € eingegeben → Kunde zahlt ${eur(100*(1+q/100))} (100,00 € + ${eur(q)} MwSt.)`; }
+  function taxModeHtml(id, m, p){
+    return `<div class="taxmode" id="${id}" role="radiogroup" aria-label="Steuer-Modus">${Object.entries(TAXM).map(([k,v])=>`<button type="button" class="tmopt" role="radio" data-tm="${k}" aria-pressed="${m===k}" aria-checked="${m===k}"><i>${v.k}</i><b>${v.t}</b><small>${v.s}</small><small class="tmex">${taxExample(k,p)}</small></button>`).join("")}</div>`; }
+  function bindTaxMode(id, onPick){ $$(`#${id} .tmopt`).forEach(b=>b.onclick=()=>{ $$(`#${id} .tmopt`).forEach(x=>{ const on=x===b; x.setAttribute("aria-pressed",on); x.setAttribute("aria-checked",on); }); onPick(b.dataset.tm); }); }
+  // Beschriftung der Positionspreise (Rechnungsformular: Modus des Belegs, sonst Standard aus den Firmendaten)
+  let POS_TAX=null;
+  const posTax = () => POS_TAX || {m:firmaTaxMode(), p:19};
+  const priceLabel = () => ({ku:"Endpreis €", netto:"Netto-Preis €", brutto:"Brutto-Preis €"})[posTax().m];
+  function posTaxNote(amount){ const {m,p}=posTax(), a=+amount||0;
+    if(m==="ku") return "Endpreis · keine USt. (§ 19 UStG)";
+    if(!p) return m==="netto" ? "netto · 0 % MwSt." : "brutto · 0 % MwSt.";
+    if(m==="netto") return a ? `netto · + ${numIn(p)} % MwSt. = ${eur(r2(a*(1+p/100)))} brutto` : `netto · zzgl. ${numIn(p)} % MwSt.`;
+    const n=r2(a/(1+p/100)); return a ? `brutto · darin ${eur(r2(a-n))} MwSt. (netto ${eur(n)})` : `brutto · inkl. ${numIn(p)} % MwSt.`; }
+  const posSumTag = () => ({ku:"Endpreise", netto:"netto", brutto:"brutto"})[posTax().m];
   function calc(r){
     const sum=r2(sumPos(r.positionen)); const rab=r2(sum*(+r.rabatt||0)/100); const base=r2(sum-rab); const p=dMwst(r);
     if(!p) return {sum, rab, netto:base, mwst:0, brutto:base, p};
@@ -234,7 +259,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="52";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="53";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -565,7 +590,7 @@ export function startApp(){
     return `${accountGroup()}<div class="group"><span class="glabel">Firma &amp; Rechnung</span>
       <button class="card" data-act="firma"><div class="row"><h3>Firmendaten, Bank, Logo</h3><span class="pill ${filled===5?"s-bezahlt":"s-versendet"}">${filled===5?"Vollständig":filled+" von 5"}</span></div>
       <div class="meta">${f.name?esc(f.name)+(f.ort?" · "+esc(f.ort):""):"Erscheinen im Kopf und Fuß jeder Rechnung."}</div>
-      <div class="meta">${f.kleinunternehmer?"Kleinunternehmer (§ 19 UStG) – ohne MwSt":(f.netto?"Preise netto, zzgl. 19 % MwSt":"Preise inkl. 19 % MwSt")} · Zahlungsziel ${f.ziel??14} Tage${f.geminiApiKey?" · KI-Belegerkennung an":""}</div></button></div>
+      <div class="meta">${TAXM[firmaTaxMode(f)].t} · Zahlungsziel ${f.ziel??14} Tage${f.geminiApiKey?" · KI-Belegerkennung an":""}</div></button></div>
 
       <div class="group" id="grpTexte"><span class="glabel">Textbausteine &amp; Hinweise</span>
       <button class="card" data-act="texte"><div class="row"><h4>${ico.text}Standardtexte für Belege</h4><span class="pill ${texteSet?"s-bezahlt":"s-entwurf"}">${texteSet} von 3</span></div>
@@ -774,19 +799,24 @@ export function startApp(){
   function posRow(p={}){
     return `<div class="pcard" ${p.teilId?`data-teil="${p.teilId}"`:""}>
       <div class="prow1"><input class="pt" placeholder="Titel der Position" value="${esc(p.bez)}" aria-label="Titel der Position"><button class="x" type="button" aria-label="Position entfernen">×</button></div>
-      <div class="prow2"><label>Menge<input class="pm r" inputmode="decimal" value="${numIn(p.menge??1)}"></label><label>Einheit<select class="pe">${einhOpts(p.einheit)}</select></label><label>Preis €<input class="pp r" inputmode="decimal" placeholder="0,00" value="${numIn(p.preis)}"></label></div>
-      <div class="ptot">${eur((+p.menge||0)*(+p.preis||0))}</div></div>`;
+      <div class="prow2"><label>Menge<input class="pm r" inputmode="decimal" value="${numIn(p.menge??1)}"></label><label>Einheit<select class="pe">${einhOpts(p.einheit)}</select></label><label><span class="pplbl">${priceLabel()}</span><input class="pp r" inputmode="decimal" placeholder="0,00" value="${numIn(p.preis)}"></label></div>
+      <div class="ptot">${eur((+p.menge||0)*(+p.preis||0))}</div><div class="ptax tm-${posTax().m}">${posTaxNote((+p.menge||0)*(+p.preis||0))}</div></div>`;
   }
   function posSection(pos, title="Positionen"){
     const opts = S.teile.map(t=>`<option value="${t.id}">${esc(t.bez)} – ${eur(t.preis)}</option>`).join("");
     return `<div class="sec"><h4>${ico.list}<span class="sp">${title}</span><button type="button" class="btn sm" id="addPos" aria-label="Position hinzufügen">${ico.plus}</button></h4>
       <div class="ptools"><button type="button" class="btn ghost sm" id="addLabor">+ Arbeitszeit</button>${S.teile.length?`<select id="addTeil" class="btn ghost sm" aria-label="Ersatzteil hinzufügen"><option value="">+ Ersatzteil…</option>${opts}</select>`:""}</div>
       <div id="posRows" style="display:flex;flex-direction:column;gap:10px">${(pos||[]).map(posRow).join("")}</div>
-      <div class="lineform" style="border-top:1px solid var(--line);padding-top:10px"><span class="lbl">Positionen gesamt</span><strong class="num" id="posSum">${eur(sumPos(pos))}</strong></div></div>`;
+      <div class="lineform" style="border-top:1px solid var(--line);padding-top:10px"><span class="lbl">Positionen gesamt <small class="ptag tm-${posTax().m}" id="posSumTag">${posSumTag()}</small></span><strong class="num" id="posSum">${eur(sumPos(pos))}</strong></div></div>`;
   }
   function bindPos(onChange=()=>{}){
     const rows=$("#posRows");
-    const upd=()=>{ $$(".pcard",rows).forEach(c=>{ $(".ptot",c).textContent=eur(parseNum($(".pm",c).value)*parseNum($(".pp",c).value)); }); $("#posSum").textContent=eur(sumPos(readPos())); onChange(); };
+    const upd=(silent)=>{ const m=posTax().m;
+      $$(".pcard",rows).forEach(c=>{ const a=parseNum($(".pm",c).value)*parseNum($(".pp",c).value); $(".ptot",c).textContent=eur(a);
+        const t=$(".ptax",c); if(t){ t.textContent=posTaxNote(a); t.className="ptax tm-"+m; } const l=$(".pplbl",c); if(l) l.textContent=priceLabel(); });
+      $("#posSum").textContent=eur(sumPos(readPos())); const tg=$("#posSumTag"); if(tg){ tg.textContent=posSumTag(); tg.className="ptag tm-"+m; }
+      if(silent!==true) onChange(); };
+    rows._upd=()=>upd(true);
     const add=p=>{ rows.insertAdjacentHTML("beforeend",posRow(p)); upd(); };
     $("#addPos").onclick=()=>{ add({menge:1,einheit:"Stk."}); rows.lastElementChild.querySelector(".pt").focus(); };
     $("#addLabor").onclick=()=>add({bez:"Arbeitszeit / Reparatur", menge:1, einheit:"psch.", preis:S.firma.pauschale??39});
@@ -813,6 +843,7 @@ export function startApp(){
 
   /* ---------- Auftrag form ---------- */
   function openAuftrag(id, presetDay){
+    POS_TAX=null;
     const a = id ? S.auftraege.find(x=>x.id===id) : null;
     const t = a?.termin || ((presetDay||today())+"T10:00");
     openSheet(a?`Auftrag <small>#${esc(a.nr)}</small>`:"Neuer Auftrag", `
@@ -921,7 +952,7 @@ export function startApp(){
     return d;
   }
   function renderEditor(d, isEdit){
-    const T=TYP[d.typ];
+    const T=TYP[d.typ]; POS_TAX={m:docTaxMode(d), p:dKu(d)?0:(d.mwst??19)};
     const jobs=S.auftraege.filter(a=>!d.kundeId || a.kundeId===d.kundeId).sort((x,y)=>(y.created||"").localeCompare(x.created||""));
     const jOpts=jobs.map(a=>`<option value="${a.id}" ${d.auftragId===a.id?"selected":""}>#${esc(a.nr)} · ${esc(a.geraet)}</option>`).join("");
     const title = isEdit ? `${T.l} bearbeiten` : ({rechnung:"Neue Rechnung", angebot:"Neues Angebot", kva:"Neuer Kostenvoranschlag"})[d.typ];
@@ -940,9 +971,11 @@ export function startApp(){
         <div class="lineform"><span>Leistungsdatum</span><input type="date" class="input" id="eLeistung" value="${d.leistung||d.datum}"></div></div>
       ${posSection(d.positionen)}
       <div class="sec"><h4>${ico.pct}Steuern &amp; Rabatt</h4>
-        <div class="lineform"><span><b class="tl">Kleinunternehmer (§ 19 UStG)</b><small class="tsub">Ohne Umsatzsteuer abrechnen</small></span><input type="checkbox" class="toggle" id="eKu" ${dKu(d)?"checked":""}></div>
-        <div class="lineform" id="eMwstRow"><span>MwSt. (%)</span><input class="input" id="eMwst" inputmode="decimal" value="${numIn(dKu(d)?0:d.mwst)}" ${dKu(d)?"disabled":""}></div>
-        <div class="lineform" id="eBruttoRow" ${dKu(d)?"hidden":""}><span><b class="tl">Preise enthalten MwSt.</b><small class="tsub" id="eBruttoTxt"></small></span><input type="checkbox" class="toggle" id="eBrutto" ${d.brutto?"checked":""}></div>
+        <span class="glabel tmhead">Steuer-Modus für diesen Beleg</span>
+        ${taxModeHtml("eTax", docTaxMode(d), dKu(d)?19:(d.mwst||19))}
+        <input type="checkbox" id="eKu" hidden ${dKu(d)?"checked":""}><input type="checkbox" id="eBrutto" hidden ${dBrutto(d)?"checked":""}>
+        <div class="lineform" id="eMwstRow" ${dKu(d)?"hidden":""}><span>MwSt.-Satz (%)</span><input class="input" id="eMwst" inputmode="decimal" value="${numIn(dKu(d)?0:d.mwst)}" ${dKu(d)?"disabled":""}></div>
+        <div class="tmnow tm-${docTaxMode(d)}" id="eBruttoTxt"></div>
         <div class="kuhint" id="eKuHint" ${dKu(d)?"":"hidden"}>${ico.doc}<span><b>Brutto = Netto.</b> Auf dem Beleg steht automatisch:<br><i>„Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.“</i></span></div>
         <div class="lineform"><span>Rabatt (%)</span><input class="input" id="eRabatt" inputmode="decimal" placeholder="0" value="${d.rabatt?numIn(d.rabatt):""}"></div>
         <div class="sumlines" id="docSum">${sumLinesHtml(calc(d))}</div></div>
@@ -956,14 +989,21 @@ export function startApp(){
     });
     bindKundeSelect("e");
     const refreshSum=()=>{ const ku=$("#eKu").checked; const t={...d, positionen:readPos(), ku, mwst:ku?0:parseNum(val("eMwst")), rabatt:parseNum(val("eRabatt")), brutto:$("#eBrutto").checked}; $("#docSum").innerHTML=sumLinesHtml(calc(t)); };
-    const bruttoTxt=()=>{ $("#eBruttoTxt").textContent = $("#eBrutto").checked ? "Eingabe ist Brutto (Endpreis inkl. MwSt.)" : "Eingabe ist Netto (zzgl. MwSt.)"; };
+    const bruttoTxt=()=>{ const ku=$("#eKu").checked, m=ku?"ku":$("#eBrutto").checked?"brutto":"netto", p=ku?0:parseNum(val("eMwst"));
+      POS_TAX={m, p}; const el=$("#eBruttoTxt");
+      el.className="tmnow tm-"+m;
+      el.innerHTML = m==="ku" ? `<b>Ihre Preise = Endpreise.</b> Es wird keine Umsatzsteuer berechnet oder ausgewiesen.`
+        : m==="brutto" ? `<b>Ihre Preise werden als BRUTTO gewertet</b> (inkl. ${numIn(p)} % MwSt.). Die MwSt. wird herausgerechnet.`
+        : `<b>Ihre Preise werden als NETTO gewertet.</b> ${numIn(p)} % MwSt. kommen oben drauf.`;
+      $("#posRows")?._upd?.(); };
     let mwstMerk = dKu(d) ? (d.mwst||19) : d.mwst;
     const kuSync=()=>{ const ku=$("#eKu").checked, m=$("#eMwst");
       if(ku){ if(!m.disabled){ const v=parseNum(m.value); mwstMerk = v>0 ? v : (mwstMerk||19); } m.value="0"; m.disabled=true; }
       else if(m.disabled){ m.disabled=false; m.value=numIn(mwstMerk>0?mwstMerk:19); }
-      $("#eMwstRow").classList.toggle("off",ku); $("#eBruttoRow").hidden=ku; $("#eKuHint").hidden=!ku; refreshSum(); };
+      $("#eMwstRow").hidden=ku; $("#eKuHint").hidden=!ku; bruttoTxt(); refreshSum(); };
     bindPos(refreshSum); bruttoTxt();
-    ["eMwst","eRabatt"].forEach(i=>$("#"+i).oninput=refreshSum); $("#eBrutto").onchange=()=>{ bruttoTxt(); refreshSum(); }; $("#eKu").onchange=kuSync;
+    $("#eMwst").oninput=()=>{ bruttoTxt(); refreshSum(); }; $("#eRabatt").oninput=refreshSum;
+    bindTaxMode("eTax", m=>{ $("#eKu").checked = m==="ku"; if(m!=="ku") $("#eBrutto").checked = m==="brutto"; kuSync(); });
     const keepK=()=>{ if(d._kundeNeu){ save("kunden",d._kundeNeu); d._kundeNeu=null; } };
     const ns=$("#eNoteStd"); if(ns) ns.onclick=()=>{ $("#eNotiz").value=defaultNote(d.typ); };
     $$("[data-typ]").forEach(b=>b.onclick=()=>{ collectEditor(d); keepK(); const old=d.typ; d.typ=b.dataset.typ;
@@ -992,7 +1032,7 @@ export function startApp(){
   function sumLinesHtml(c){
     return `${c.rab?`<div><span>Positionen</span><span>${eur(c.sum)}</span></div><div><span>Rabatt</span><span>− ${eur(c.rab)}</span></div>`:""}
       ${c.p?`<div><span>Zwischensumme (netto)</span><span>${eur(c.netto)}</span></div><div><span>MwSt. (${numIn(c.p)} %)</span><span>${eur(c.mwst)}</span></div>`:""}
-      <div class="g"><span>Gesamtbetrag</span><span>${eur(c.brutto)}</span></div>`;
+      <div class="g"><span>${c.p?"Gesamtbetrag (brutto)":"Gesamtbetrag"}</span><span>${eur(c.brutto)}</span></div>`;
   }
 
   /* ---------- Dokument-Übersicht ---------- */
@@ -1486,9 +1526,10 @@ export function startApp(){
         <p class="help">PNG oder JPG. Weiße Ränder werden automatisch abgeschnitten, damit das Logo oben links auf dem Beleg so groß wie möglich und unverzerrt erscheint.</p></div>
       <div class="group"><span class="glabel">Bankverbindung</span><div class="box">${fld("cBank","Bank",f.bank,"z. B. Sparkasse")}${fld("cIban","IBAN",f.iban,"DE00 0000 0000 0000 0000 00","mono")}${fld("cBic","BIC",f.bic,"optional","mono")}</div></div>
       <div class="group"><span class="glabel">Steuer</span><div class="box">${fld("cStnr","Steuernummer",f.stnr,"123/456/78901","mono")}${fld("cUst","USt-IdNr.",f.ustid,"optional","mono")}
-        <div class="field"><label for="cKlein">Kleinunternehmer</label><input type="checkbox" class="toggle" id="cKlein" ${f.kleinunternehmer?"checked":""}></div>
-        <div class="field"><label for="cNetto">Preise netto eingeben</label><input type="checkbox" class="toggle" id="cNetto" ${f.netto?"checked":""}></div></div>
-        <p class="help">Kleinunternehmer an: neue Belege ohne MwSt., mit Hinweis auf § 19 UStG. „Preise netto“ an: MwSt. wird auf Ihre Preise aufgeschlagen (sonst sind die Preise Endpreise inkl. MwSt.).</p></div>
+        <input type="checkbox" id="cKlein" hidden ${f.kleinunternehmer?"checked":""}><input type="checkbox" id="cNetto" hidden ${f.netto?"checked":""}></div>
+        <span class="glabel tmhead">Steuer-Modus (Standard für neue Belege)</span>
+        <div class="box">${taxModeHtml("cTax", firmaTaxMode(f), 19)}</div>
+        <p class="help">Gilt für neue Rechnungen, Angebote und Kostenvoranschläge. In jedem einzelnen Beleg lässt sich der Modus bei Bedarf ändern. Bei A steht auf dem Beleg automatisch der Hinweis auf § 19 UStG.</p></div>
       <div class="group"><span class="glabel">Nummernkreise</span><div class="box">
         <div class="field"><label for="cPreJob">Aufträge</label><input id="cPreJob" class="mono" maxlength="12" autocapitalize="characters" placeholder="JOB-" value="${esc(f.preJob??"")}"></div>
         <div class="field"><label for="cPreRe">Rechnungen</label><input id="cPreRe" class="mono" maxlength="12" autocapitalize="characters" placeholder="RE-" value="${esc(f.preRe??"")}"></div>
@@ -1514,6 +1555,7 @@ export function startApp(){
         <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div></div></div>`, () => {
         saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
         toast("Firmendaten gespeichert"); });
+    bindTaxMode("cTax", m=>{ $("#cKlein").checked = m==="ku"; $("#cNetto").checked = m==="netto"; });
     const nrUpd=()=>{ const f2={...S.firma, ...readNrForm()};
       $("#nrPrev").innerHTML=[["Auftrag",nextJobNrFor(f2)],["Rechnung",nextNr("rechnung",f2)],["Angebot",nextNr("angebot",f2)],["KVA",nextNr("kva",f2)]].map(([a,b])=>`<i>${a}</i><b>${esc(b)}</b>`).join(""); };
     ["cPreJob","cPreRe","cPreAn","cPreKv"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
