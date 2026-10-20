@@ -980,6 +980,25 @@ mark{background:color-mix(in srgb, var(--hi) 30%, transparent);color:inherit;bor
 .kpnote{margin:0;padding:0 14px 10px}
 .kpnote.warn{color:var(--amber)}
 #grpKi textarea.mono{font-size:12px;min-height:90px}
+/* Steuer-Modus */
+.taxmode{display:flex;flex-direction:column;gap:8px;padding:12px}
+.sec .taxmode{padding:0}
+.tmopt{display:grid;grid-template-columns:30px minmax(0,1fr);gap:2px 10px;align-items:start;text-align:left;border:1.5px solid var(--line);background:var(--surface);border-radius:14px;padding:11px 12px;color:var(--fg);transition:border-color .15s,background-color .15s}
+.tmopt i{grid-row:1/4;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-weight:800;font-size:13px;color:var(--muted);border:2px solid var(--faint)}
+.tmopt b{font-size:14.5px;line-height:1.25}
+.tmopt small{grid-column:2;font-size:12.5px;color:var(--muted);line-height:1.35}
+.tmopt .tmex{font-family:var(--f-mono);font-size:11.5px;color:var(--faint);margin-top:2px}
+.tmopt[aria-pressed="true"]{border-color:var(--link);background:color-mix(in srgb, var(--link) 7%, var(--surface))}
+.tmopt[aria-pressed="true"] i{background:var(--link);border-color:var(--link);color:#fff}
+.tmopt[aria-pressed="true"] .tmex{color:var(--link)}
+.glabel.tmhead{display:block;margin:2px 0 -2px}
+.tmnow{border-radius:12px;padding:10px 12px;font-size:13.5px;line-height:1.4;border:1px solid}
+.tmnow.tm-netto{background:var(--blue-soft);border-color:color-mix(in srgb, var(--blue) 35%, transparent)}
+.tmnow.tm-brutto{background:var(--green-soft);border-color:color-mix(in srgb, var(--green) 35%, transparent)}
+.tmnow.tm-ku{background:var(--grey-soft);border-color:var(--line)}
+.ptax{font-size:11.5px;font-weight:600;text-align:right;margin-top:-2px;color:var(--muted)}
+.ptax.tm-netto,.ptag.tm-netto{color:var(--blue)} .ptax.tm-brutto,.ptag.tm-brutto{color:var(--green)}
+.ptag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-left:4px}
 /* Nummernkreise */
 #nrPrev{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13.5px}
 #nrPrev i{font-style:normal;color:var(--muted)}
