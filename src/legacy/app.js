@@ -259,7 +259,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="53";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="54";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -320,7 +320,7 @@ export function startApp(){
   /* Wischen nach links/rechts → nächster/vorheriger Tab.
      Robust für iPhone: lauscht früh (Capture) auf Touch- UND Pointer-Eingaben, nur eindeutige Ausschlüsse. */
   (()=>{ let sw=null, lastFire=0;
-    const BLOCK="input,textarea,select,[contenteditable],.chips,.nodrag,#tabs,.top,.sheet,.picker,.viewer,.menu,.auth,.bfull,.tour,.selbar,.fab,.scrim,.splash,.sigpad";
+    const BLOCK="input,textarea,select,[contenteditable],.chips,.nodrag,#tabs,.top,.sheet,.picker,.viewer,.menu,.auth,.bfull,.tour,.selbar,.fab,.scrim,.splash,.sigpad,.delmodal";
     const open = id => { const e=document.getElementById(id); return !!e && !e.hidden; };
     const start = (x,y,el,src) => {
       sw=null; if(UI.sel || open("sheet") || open("picker") || open("viewer") || open("tour")) return;
@@ -696,6 +696,7 @@ export function startApp(){
       if(a==="exportKunden") exportMenu("kunden"); if(a==="exportTeile") exportMenu("teile");
       if(a==="pdfsample") openViewer(sampleDoc(), `<b>Beispiel-Blatt · ${LAYOUTS[pdfLayout()].l}</b><span>So sehen Ihre Belege mit den aktuellen Einstellungen aus.</span>`);
       if(a==="csvExport") exportCsv();
+      if(a==="delAcct"){ openDelAcct(); return; }
       if(a==="logout"){ logout(); return; } if(a==="logoutYes"){ logoutNow(); return; } if(a==="logoutNo"){ LOGOUT_ASK=null; render(); return; }
       if(a==="syncNow"){ cloudSyncNow().then(()=>toast(CLOUD.status==="err"?CLOUD.msg:"Synchronisiert")); return; }
       if(a==="login"){ CLOUD.skip=false; showAuth("login"); return; }
@@ -2982,13 +2983,15 @@ export function startApp(){
     render(); requestAnimationFrame(()=>$("#grpKonto")?.scrollIntoView({block:"center", behavior:"smooth"}));
   }
   function accountGroup(){
-    if(!CLOUD.user) return CLOUD.skip ? `<div class="group" id="grpKonto"><span class="glabel">Konto &amp; Cloud</span><div class="card"><span style="color:var(--muted)">Vorschau ohne Anmeldung.</span><div class="btnrow"><button class="btn" data-act="login">Anmelden</button></div></div></div>` : "";
+    if(!CLOUD.user) return `<div class="group" id="grpKonto"><span class="glabel">${CLOUD.skip?"Konto &amp; Cloud":"Daten"}</span><div class="card">${CLOUD.skip?`<span style="color:var(--muted)">Vorschau ohne Anmeldung.</span><div class="btnrow"><button class="btn" data-act="login">Anmelden</button></div>`:`<span style="color:var(--muted)">Alle Daten dieser App auf einen Schlag entfernen.</span>`}
+      <button type="button" class="delacct" data-act="delAcct">${ICO_TRASH}<span>Alle Daten löschen</span></button></div></div>`;
     const u=CLOUD.user;
     return `<div class="group" id="grpKonto"><span class="glabel">Konto &amp; Cloud</span><div class="card acct">
       <div class="row"><span class="acav">${esc((u.user_metadata?.name||u.email||"?").trim()[0]||"?").toUpperCase()}</span><span class="acwho"><b>${esc(u.user_metadata?.name||S.firma.ansprechpartner||"Angemeldet")}</b><small>${esc(u.email||"")}</small></span></div>
       <div class="cstate ${CLOUD.status}" id="cloudState">${cloudStateHtml()}</div>
       ${LOGOUT_ASK?`<div class="confirm"><span>${LOGOUT_ASK}</span><div class="btnrow"><button class="btn danger" data-act="logoutYes">Ja, abmelden</button><button class="btn ghost" data-act="logoutNo">Abbrechen</button></div></div>`
         :`<div class="btnrow">${CLOUD.off?"":`<button class="btn ghost" data-act="syncNow">${ico.sync} Jetzt synchronisieren</button>`}<button class="btn danger" data-act="logout">Abmelden</button></div>`}
+      <button type="button" class="delacct" data-act="delAcct">${ICO_TRASH}<span>Konto löschen</span></button>
     </div></div>`;
   }
 
@@ -4044,6 +4047,61 @@ export function startApp(){
     catch(e){
       if(KI_PROV[p].direkt && e.code==="proxy"){ steps.push({ok:true, t:"Direktverbindung", d:"Ohne Cloud-Anmeldung wird der Anbieter direkt angesprochen. Ob er das erlaubt, zeigt sich beim ersten Beleg."}); draw(); return fin(true); }
       steps.push({ok:false, t:"WerkDoc-Vermittler", d:gemMsg(e)}); draw(); fin(false); }
+  }
+
+  /* ===================== Konto löschen ===================== */
+  const ICO_TRASH=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>`;
+  const DEL_WORD="LÖSCHEN";
+  function openDelAcct(){
+    $("#delmodal")?.remove();
+    const cloud=!!CLOUD.user;
+    document.body.insertAdjacentHTML("beforeend", `<div class="delmodal" id="delmodal" role="dialog" aria-modal="true" aria-labelledby="delTitle"><div class="delbox" id="delBox">
+      <span class="delico">${ICO_TRASH}</span>
+      <h3 id="delTitle">${cloud?"Konto endgültig löschen?":"Alle Daten löschen?"}</h3>
+      <p>${cloud?`Ihr WerkDoc-Konto <b>${esc(CLOUD.user.email||"")}</b> und alle zugehörigen Daten werden unwiderruflich gelöscht – in der Cloud und auf allen Geräten:`:"Alle Daten dieser App werden unwiderruflich gelöscht:"}</p>
+      <ul><li>Aufträge, Kunden, Ersatzteile</li><li>Rechnungen, Angebote, Kostenvoranschläge</li><li>Ausgaben samt Belegfotos, Zustandsfotos, Unterschriften</li><li>Firmendaten, Logo und KI-Zugangsdaten</li></ul>
+      <p>Tipp: Vorher unter „Backup herunterladen“ eine Sicherung speichern.</p>
+      <label for="delIn">Zur Bestätigung <b>${DEL_WORD}</b> eintippen:</label>
+      <input class="input" id="delIn" autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false" placeholder="${DEL_WORD}" aria-describedby="delMsg">
+      <div class="delmsg" id="delMsg" role="alert"></div>
+      <div class="btnrow"><button class="btn ghost" id="delNo">Abbrechen</button><button class="btn danger" id="delGo" disabled>${cloud?"Konto löschen":"Daten löschen"}</button></div></div></div>`);
+    const m=$("#delmodal"), inp=$("#delIn"), go=$("#delGo"), box=$("#delBox");
+    requestAnimationFrame(()=>{ m.classList.add("on"); setTimeout(()=>inp.focus(), 250); });
+    const ok=()=>inp.value.trim().toUpperCase()===DEL_WORD;
+    inp.oninput=()=>{ const y=ok(); go.disabled=!y; inp.classList.toggle("ok",y); $("#delMsg").textContent=""; };
+    inp.onkeydown=e=>{ if(e.key==="Enter"){ if(ok()) go.click(); else { box.classList.remove("shake"); void box.offsetWidth; box.classList.add("shake"); } } };
+    const close=()=>{ if(m.dataset.busy) return; m.classList.remove("on"); setTimeout(()=>m.remove(),220); document.removeEventListener("keydown", esc_); };
+    const esc_=e=>{ if(e.key==="Escape") close(); };
+    document.addEventListener("keydown", esc_);
+    $("#delNo").onclick=close; m.onclick=e=>{ if(e.target===m) close(); };
+    go.onclick=async()=>{
+      if(!ok()) return; m.dataset.busy="1"; go.disabled=true; $("#delNo").disabled=true; inp.disabled=true;
+      go.innerHTML=`<span class="ocrspin" style="display:inline-block;width:16px;height:16px;vertical-align:-3px"></span> Lösche …`;
+      try{ await deleteAccountNow(); delete m.dataset.busy; close(); }
+      catch(e){ delete m.dataset.busy; $("#delMsg").textContent=e.message||"Löschen fehlgeschlagen"; go.textContent=cloud?"Konto löschen":"Daten löschen"; go.disabled=!ok(); $("#delNo").disabled=false; inp.disabled=false; }
+    };
+  }
+  async function deleteAccountNow(){
+    if(CLOUD.user){
+      if(navigator.onLine===false) throw new Error("Keine Internetverbindung – zum Löschen des Kontos bitte online gehen.");
+      const c=await sbClient(); const uid=CLOUD.user.id;
+      const {error}=await c.rpc("wb_delete_account");
+      if(error){
+        if(error.code==="PGRST202" || /could not find the function|wb_delete_account/i.test(error.message||""))
+          throw new Error("Die Lösch-Funktion ist in Supabase noch nicht eingerichtet (SQL „wb_delete_account“). Es wurde nichts gelöscht.");
+        throw new Error("Löschen fehlgeschlagen: "+(error.message||"unbekannter Fehler")+" – es wurde nichts gelöscht.");
+      }
+      LOGGING_OUT=true; clearInterval(pullTimer); try{ if(sbChan) sb.removeChannel(sbChan); }catch(e){}
+      try{ await c.auth.signOut({ scope:"local" }); }catch(e){}
+      try{ localStorage.removeItem(SB_STORE); }catch(e){}
+      lsSet(obKey(), null); lsSet("wb-owner", null); lsSet("wb-lastpull-"+uid, null); lsSet("wb-gemkey-"+uid, null);
+      CLOUD.user=null; CLOUD.ready=false; await wipeLocal(); UNDO.length=0; LOGGING_OUT=false; UI.view="auftraege";
+      showAuth("login", { msg:"Ihr Konto und alle Daten wurden gelöscht.", kind:"ok" });
+      return;
+    }
+    // ohne Cloud-Konto: alle Daten in dieser App entfernen
+    if(mode==="db"){ for(const c of COLLS){ const ids=S[c].map(x=>x.id); if(ids.length) await _removeMany(c, ids); } try{ for(const id of (await BILD.tx("readonly", s=>s.getAllKeys()))||[]) await BILD.del(id); }catch(e){} await saveFirma({}); }
+    await wipeLocal(); UNDO.length=0; UI.view="auftraege"; render(); toast("Alle Daten wurden gelöscht");
   }
 
   /* ---------- start ---------- */
