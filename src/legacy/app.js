@@ -89,7 +89,7 @@ export function startApp(){
     text:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 10h16M4 14h10M4 18h7"/></svg>',
     table:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 14h18M9 9v11"/></svg>'
   };
-  function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("on"),2600); }
+  function toast(msg, ms=2600){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("on"),ms); }
 
   const STATUS = { angenommen:{l:"Angenommen",n:1}, reparatur:{l:"In Reparatur",n:2}, fertig:{l:"Abholbereit",n:3}, abgeholt:{l:"Abgeholt",n:4} };
   const EINH = [["Stk.","Stück"],["Std.","Stunden"],["Min.","Minuten"],["psch.","Pauschal"],["Tag","Tage"],["km","Kilometer"],["m","Meter"]];
@@ -259,7 +259,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="58";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="59";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -3973,17 +3973,17 @@ export function startApp(){
   }
 
   /* Vermittler (Supabase Edge Function „beleg-ki“) */
-  async function kiProxy(body, timeout=70000){
+  async function kiProxy(body, timeout=70000, fn="beleg-ki"){
     if(!(CLOUD?.user && typeof sb!=="undefined" && sb)) throw new GeminiError("proxy", GEMINI_MSG.proxy);
     let token=""; try{ token=(await sb.auth.getSession())?.data?.session?.access_token||""; }catch(e){}
     if(!token) throw new GeminiError("proxy", GEMINI_MSG.proxy);
     const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(), timeout);
     let res;
-    try{ res=await fetch(`${SB_URL}/functions/v1/beleg-ki`, {method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`, apikey:SB_KEY}, body:JSON.stringify(body), signal:ctl.signal}); }
+    try{ res=await fetch(`${SB_URL}/functions/v1/${fn}`, {method:"POST", headers:{"Content-Type":"application/json", Authorization:`Bearer ${token}`, apikey:SB_KEY}, body:JSON.stringify(body), signal:ctl.signal}); }
     catch(e){ throw new GeminiError(e.name==="AbortError"?"timeout":(navigator.onLine===false?"offline":"net"), e.message); }
     finally{ clearTimeout(tm); }
     const j=await res.json().catch(()=>null);
-    if(res.status===404) throw new GeminiError("noproxy", GEMINI_MSG.noproxy);
+    if(res.status===404) throw new GeminiError("noproxy", fn==="beleg-ki" ? GEMINI_MSG.noproxy : `Die Cloud-Funktion „${fn}“ ist in Supabase noch nicht eingerichtet`);
     if(!res.ok || !j?.ok){ const e=new GeminiError(j?.code||"fail", j?.error || `Vermittler: ${res.status}`); if(j?.error) e.serverMsg=j.error; throw e; }   // Klartext vom Server hat Vorrang
     return j;
   }
@@ -4216,7 +4216,16 @@ export function startApp(){
   function voiceParse(t){ const s=String(t||"").replace(/^```(?:json)?\s*/i,"").replace(/```\s*$/,""); const a=s.indexOf("{"), b=s.lastIndexOf("}");
     if(a<0||b<a) throw new GeminiError("parse","keine JSON-Antwort"); const o=JSON.parse(s.slice(a,b+1));
     return { transkript:String(o.transkript||"").trim(), text:String(o.text||"").replace(/\r/g,"").replace(/\n{3,}/g,"\n\n").trim() }; }
+  // Wie wird die Sprachnotiz aufbereitet? own = eigener Gemini-Key · cloud = WerkDoc-Cloud (Key nur auf dem Server) · device = nur Spracherkennung des Geräts
+  const voiceMode = () => geminiKey() ? "own" : (CLOUD?.user && typeof sb!=="undefined" && sb) ? "cloud" : "device";
+  async function voiceCloud(kind, ctx, audio, rawText){
+    const c={ firma:S.firma.name||"", geraet:ctx.geraet||"", problem:kind!=="problem" ? (ctx.problem||"") : "", positionen:(ctx.positionen||[]).map(p=>p?.bez).filter(Boolean).slice(0,15) };   // keine Preise/Kundendaten mitschicken
+    const body = audio ? {art:kind, ctx:c, audio:{mime:audio.mime, data:audio.b64, sek:Math.round(audio.sec||0)}} : {art:kind, ctx:c, text:rawText};
+    const j=await kiProxy(body, 95000, "sprachnotiz-ki");
+    return { transkript:j.transkript||"", text:j.text||"", model:"WerkDoc-Cloud", nutzung:j.nutzung||null };
+  }
   async function voiceKi(kind, ctx, audio, rawText){
+    if(voiceMode()==="cloud") return voiceCloud(kind, ctx, audio, rawText);
     const parts=[{text:voicePrompt(kind, ctx)}];
     if(audio) parts.push({inline_data:{mime_type:audio.mime, data:audio.b64}});
     else parts.push({text:`Sprachnotiz (bereits als Text erkannt):\n"""${rawText}"""`});
@@ -4228,11 +4237,11 @@ export function startApp(){
   let VOICE=null;
   async function startVoice(target, kind){
     if(VOICE) return; const ta=$("#"+target); if(!ta) return;
-    const k=MIC_KIND[kind]||MIC_KIND.problem, hasKey=!!geminiKey();
+    const k=MIC_KIND[kind]||MIC_KIND.problem, mode=voiceMode(), hasKey=mode!=="device";
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
     const canRec=!!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
     if(!canRec && !SR){ toast("Dieses Gerät unterstützt keine Sprachaufnahme – bitte die Diktierfunktion der Tastatur nutzen"); return; }
-    const useAudio = hasKey && canRec;                      // bester Weg: Ton an Gemini (Transkript + Aufbereitung in einem Schritt)
+    const useAudio = hasKey && canRec;                      // bester Weg: Ton an die KI (Transkript + Aufbereitung in einem Schritt) – mit eigenem Key direkt, sonst über die WerkDoc-Cloud
     $("#micpanel")?.remove();
     document.body.insertAdjacentHTML("beforeend", `<div class="micpanel" id="micpanel" role="dialog" aria-label="${k.t}"><div class="mpcard">
       <div class="mphead"><span class="mpdot"></span><b>${k.t}</b><span class="mptime num" id="mpTime">0:00</span></div>
@@ -4240,7 +4249,7 @@ export function startApp(){
       <div class="mplive hint" id="mpLive">${k.bsp}</div>
       <div class="mpbusy"><span class="ocrspin"></span><span id="mpBusyTxt">KI formuliert den Text …</span></div>
       <div class="mpbtns"><button class="btn ghost" id="mpCancel">Abbrechen</button><button class="btn accent" id="mpDone">■ Fertig</button></div>
-      <small class="mpnote">${useAudio?"Frei sprechen – Gemini macht daraus einen sauberen Text. Die Aufnahme wird nicht gespeichert.":hasKey?"Spracherkennung des Geräts · Gemini formuliert danach den Text.":"Spracherkennung des Geräts · für fachlich formulierte Texte Gemini-Key unter Firmendaten eintragen."}</small></div></div>`);
+      <small class="mpnote">${useAudio?(mode==="cloud"?"Frei sprechen – die WerkDoc-KI macht daraus einen sauberen Text. Die Aufnahme wird verschlüsselt übertragen und nicht gespeichert.":"Frei sprechen – Gemini macht daraus einen sauberen Text. Die Aufnahme wird nicht gespeichert."):hasKey?"Spracherkennung des Geräts · die KI formuliert danach den Text.":"Spracherkennung des Geräts · für fachlich formulierte Texte unter Cloud-Sync anmelden."}</small></div></div>`);
     const panel=$("#micpanel"); requestAnimationFrame(()=>panel.classList.add("on"));
     const V=VOICE={target, kind, ta, chunks:[], live:"", fin:"", t0:Date.now(), stopped:false, cancel:false};
     const bars=$$("#mpWave i"), live=$("#mpLive");
@@ -4293,7 +4302,7 @@ export function startApp(){
         close(); voiceInsert(ta, res);
       }catch(e){
         if(V.cancel) return;
-        close(); toast(e instanceof GeminiError ? "KI nicht verfügbar: "+gemMsg(e) : (e.message||"Sprachnotiz fehlgeschlagen"));
+        close(); toast(e instanceof GeminiError ? (e.code==="kiquota" ? gemMsg(e) : "KI nicht verfügbar: "+gemMsg(e)) : (e.message||"Sprachnotiz fehlgeschlagen"), e?.code==="kiquota" ? 5000 : undefined);
       }
     };
   }
@@ -4304,7 +4313,7 @@ export function startApp(){
     ta.classList.remove("micnew"); void ta.offsetWidth; ta.classList.add("micnew");
     const fit=()=>{ ta.style.height="auto"; ta.style.height=Math.min(340, ta.scrollHeight+6)+"px"; }; fit(); requestAnimationFrame(fit);
     const field=ta.closest(".micfield")||ta.parentElement; field.nextElementSibling?.classList.contains("micres") && field.nextElementSibling.remove();
-    field.insertAdjacentHTML("afterend", `<div class="micres">✓ ${res.lokal?"Bereinigt":"Von KI formuliert"}${res.transkript&&res.transkript!==res.text?` · <button type="button" data-mo>Original anzeigen</button>`:""} · <button type="button" data-mu>Rückgängig</button></div>`);
+    field.insertAdjacentHTML("afterend", `<div class="micres">✓ ${res.lokal?"Bereinigt":"Von KI formuliert"}${res.nutzung?.limit?` <span class="micq" style="opacity:.7">(${res.nutzung.verbraucht}/${res.nutzung.limit} im Monat)</span>`:""}${res.transkript&&res.transkript!==res.text?` · <button type="button" data-mo>Original anzeigen</button>`:""} · <button type="button" data-mu>Rückgängig</button></div>`);
     const box=field.nextElementSibling;
     box.querySelector("[data-mu]").onclick=()=>{ ta.value=before; ta.dispatchEvent(new Event("input",{bubbles:true})); fit(); box.remove(); };
     const mo=box.querySelector("[data-mo]"); if(mo) mo.onclick=()=>{ const raw=ta.value===roh; ta.value = raw ? ki : roh; fit(); mo.textContent = raw ? "Original anzeigen" : "KI-Version anzeigen"; };
