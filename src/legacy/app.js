@@ -259,7 +259,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="57";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="58";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -1546,7 +1546,7 @@ export function startApp(){
         <div class="kv" style="flex-direction:column;gap:6px"><span>Nächste Nummern</span><div id="nrPrev" class="mono"></div></div></div>
         <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 0001.</p></div>
       <div class="group" id="grpKi"><span class="glabel">KI-Belegerkennung</span><div class="box">
-        <div class="field"><label for="cKiProv">Belegerkennungs-Anbieter</label><select id="cKiProv">${Object.entries(KI_PROV).map(([k,p])=>`<option value="${k}" ${kiProv()===k?"selected":""}>${esc(p.l)}${k==="gemini"?" (Standard)":""}</option>`).join("")}</select></div>
+        <div class="field"><label for="cKiProv">Belegerkennungs-Anbieter</label><select id="cKiProv">${Object.entries(KI_PROV).map(([k,p])=>`<option value="${k}" ${kiProv()===k?"selected":""}>${esc(p.l)}${k==="gemini"?" – eigener API-Key":k==="docai"?" – inklusive":""}</option>`).join("")}</select></div>
         <div data-kp="gemini">
         <div class="field"><label for="cGemini">Gemini API-Key</label><input id="cGemini" type="password" class="mono" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="AIza…" value="${esc(f.geminiApiKey||"")}"><button type="button" class="eyebtn" id="cGemEye" aria-label="Key anzeigen">${ico.eye}</button></div>
         <div class="field"><label for="cGemModel">Modell</label><input id="cGemModel" class="mono" list="gemModels" autocapitalize="off" spellcheck="false" placeholder="automatisch" value="${esc(f.geminiModel||"")}"><datalist id="gemModels">${GEM_SUGGEST.map(m=>`<option value="${m}">`).join("")}</datalist></div>
@@ -1556,6 +1556,7 @@ export function startApp(){
         <div class="field gemtest"><button type="button" class="btn ghost sm" id="cGemTest">Verbindung testen</button><span id="cGemRes"></span></div>
         <div class="gemsteps" id="cGemSteps" hidden></div></div>
         <p class="help" id="cKiHelp"></p>
+        <div class="kiquota" id="cKiQuota" hidden></div>
         <p class="help" data-kp="gemini">Mit Key liest die KI beim Erfassen einer Ausgabe Händler, Datum, Rechnungs-Nr., Betrag und MwSt. aus. Dazu wird das Foto bzw. die PDF an Google gesendet – im kostenlosen Tarif darf Google die Inhalte zur Verbesserung seiner Dienste verwenden. Ohne Key oder bei einem Fehler nutzt die App automatisch die lokale Texterkennung. Den Key erstellen Sie in Google AI Studio; er wird nicht ins Backup geschrieben. Modell leer lassen = automatisch: Die App fragt Google, welche Modelle Ihr Key nutzen darf, und weicht bei Überlastung, Limit oder Zeitüberschreitung selbst auf das nächste aus.</p></div>
       <div class="group"><span class="glabel">Standards</span><div class="box">
         <div class="field"><label for="cZiel">Zahlungsziel (Tage)</label><input id="cZiel" inputmode="numeric" value="${f.ziel??14}"></div>
@@ -2004,7 +2005,7 @@ export function startApp(){
     noproxy:"WerkDoc-Vermittler „beleg-ki“ ist in Supabase noch nicht eingerichtet",
     fail:"Unbekannter Fehler"
   };
-  const gemMsg = e => GEMINI_MSG[e?.code] || e?.message || GEMINI_MSG.fail;
+  const gemMsg = e => e?.serverMsg || GEMINI_MSG[e?.code] || e?.message || GEMINI_MSG.fail;
   const GEM_GLOBAL = ["key","disabled","region","offline","big","nokey"];   // betrifft alle Modelle → nicht weiter probieren
   function gemErr(status, err){
     const msg=err?.error?.message||"", st=err?.error?.status||"", reason=JSON.stringify(err?.error?.details||"");
@@ -3909,7 +3910,7 @@ export function startApp(){
     mindee:{l:"Mindee API", kurz:"Mindee", direkt:true},
     veryfi:{l:"Veryfi API", kurz:"Veryfi", direkt:false},
     klippa:{l:"Klippa SpendControl / DocHorizon API", kurz:"Klippa", direkt:true},
-    docai:{l:"Google Cloud Document AI (Invoice Parser)", kurz:"Google Cloud", direkt:false}
+    docai:{l:"WerkDoc-Cloud · Google Document AI (Invoice Parser)", kurz:"WerkDoc-Cloud", direkt:false}
   };
   const GEM_SUGGEST=["gemini-2.5-flash","gemini-flash-latest","gemini-2.5-pro","gemini-flash-lite-latest","gemini-1.5-flash"];
   const KI_FIELDS = {
@@ -3922,11 +3923,13 @@ export function startApp(){
     mindee:"Im Mindee-Dashboard das Modell „Invoice“ oder „Receipt“ aus dem Katalog hinzufügen und dessen Modell-ID hier eintragen. Mindee wird zuerst direkt angesprochen; blockiert der Browser das, läuft es automatisch über den WerkDoc-Vermittler.",
     veryfi:"Veryfi erlaubt aus Sicherheitsgründen keine Aufrufe direkt aus Web-Apps. Die Belege laufen deshalb immer über den WerkDoc-Vermittler in Ihrem Supabase-Konto (einmalig einrichten).",
     klippa:"Klippa DocHorizon (heute „Doxis AI.dp“), Modell „Financial“. Wird zuerst direkt angesprochen, sonst über den WerkDoc-Vermittler.",
-    docai:"Läuft immer über den WerkDoc-Vermittler „beleg-ki“ in Supabase. Dort liegen Dienstkonto-Schlüssel und Prozessor-IDs sicher als Secrets – die Felder hier können leer bleiben. PDF-Rechnungen gehen an den Invoice Parser, Fotos von Kassenbons an den Expense Parser. Zurück kommen Lieferant, Rechnungs-Nr., Datum, Netto, MwSt.-Sätze, Brutto und die einzelnen Positionen."
+    docai:"In WerkDoc enthalten – Sie brauchen keinen eigenen Schlüssel, nur die Anmeldung mit Ihrem WerkDoc-Konto. Der Beleg wird verschlüsselt an den WerkDoc-Server und von dort an Google Document AI (EU) geschickt; Zugangsschlüssel liegen nur auf dem Server, nie in der App. Die Felder oben sind nur für eigene Google-Zugänge und können leer bleiben. PDF-Rechnungen gehen an den Invoice Parser, Fotos von Kassenbons an den Expense Parser. Zurück kommen Lieferant, Rechnungs-Nr., Datum, Netto, MwSt.-Sätze, Brutto und die einzelnen Positionen."
   };
-  const kiProv = () => KI_PROV[S.firma.kiAnbieter] ? S.firma.kiAnbieter : "gemini";
+  // Standard: eigener Gemini-Key, falls hinterlegt – sonst (angemeldet) die in WerkDoc enthaltene Erkennung über den Server
+  const kiProv = () => { const p = KI_PROV[S.firma.kiAnbieter] ? S.firma.kiAnbieter : "gemini";
+    return p==="gemini" && !geminiKey() && CLOUD?.user ? "docai" : p; };
   const kiCfgOf = (p, f=S.firma) => (f.kiCfg||{})[p] || {};
-  function kiCfgOk(p, c){ return p==="mindee" ? !!(c.key && c.modelId) : p==="veryfi" ? !!(c.clientId && c.user && c.key) : p==="klippa" ? !!c.key : p==="docai" ? true : false; }   // Document AI: Zugang liegt als Secret in Supabase
+  function kiCfgOk(p, c){ return p==="mindee" ? !!(c.key && c.modelId) : p==="veryfi" ? !!(c.clientId && c.user && c.key) : p==="klippa" ? !!c.key : p==="docai" ? !!CLOUD?.user : false; }   // Document AI: Zugang liegt als Secret in Supabase, braucht nur die Anmeldung
   function kiReady(){ const p=kiProv(); return p==="gemini" ? !!geminiKey() : kiCfgOk(p, kiCfgOf(p)); }
   async function kiBeleg(beleg, onModel){ const p=kiProv(); return p==="gemini" ? geminiBeleg(beleg, onModel) : provBeleg(p, beleg, onModel); }
 
@@ -3944,7 +3947,7 @@ export function startApp(){
     const sel=$("#cKiProv"); if(!sel) return;
     const upd=()=>{ const p=sel.value; $$("#grpKi [data-kp]").forEach(el=>el.hidden = el.dataset.kp!==p);
       $("#cKiHelp").textContent = KI_HELP[p] || ""; $("#cKiHelp").hidden = !KI_HELP[p];
-      $("#cGemRes").textContent=""; $("#cGemSteps").hidden=true; };
+      $("#cGemRes").textContent=""; $("#cGemSteps").hidden=true; kiQuotaShow(p); };
     sel.onchange=upd; upd();
     const note=()=>{ const m=val("cGemModel"), n=$("#cGemNote");
       if(/gemini-1\.5/i.test(m)){ n.className="help kpnote warn"; n.textContent="Hinweis: Google hat die 1.5-Modelle abgeschaltet. Die App versucht es trotzdem und weicht bei „Modell nicht verfügbar“ automatisch auf gemini-2.5-flash bzw. das neueste Flash-Modell aus."; }
@@ -3952,6 +3955,21 @@ export function startApp(){
       else { n.className="help kpnote"; n.textContent="Automatisch: die App wählt das beste verfügbare Flash-Modell (derzeit meist gemini-2.5-flash bzw. gemini-flash-latest)."; } };
     $("#cGemModel").oninput=note; note();
     $$("#grpKi [data-gm]").forEach(b=>b.onclick=()=>{ $("#cGemModel").value=b.dataset.gm; note(); });
+  }
+
+  const kiQuotaTxt = k => !k ? "" : k.unbegrenzt||k.limit==null ? `${k.verbraucht} Belege diesen Monat · unbegrenzt` : `${k.verbraucht} von ${k.limit} Belegen diesen Monat`;
+  let KI_QUOTA_T=0;
+  async function kiQuotaShow(p){
+    const el=$("#cKiQuota"); if(!el) return; const t=++KI_QUOTA_T;
+    if(p!=="docai"){ el.hidden=true; return; }
+    if(!CLOUD?.user){ el.hidden=false; el.className="kiquota warn"; el.innerHTML="Zum Nutzen bitte unter <b>Cloud-Sync</b> mit Ihrem WerkDoc-Konto anmelden."; return; }
+    el.hidden=false; el.className="kiquota"; el.textContent="Kontingent wird geladen …";
+    try{ const j=await kiProxy({provider:"docai", ping:true}, 20000); if(t!==KI_QUOTA_T) return; const k=j.info?.kontingent;
+      if(!k){ el.hidden=true; return; }
+      const pc = k.limit ? Math.min(100, Math.round(k.verbraucht/k.limit*100)) : 0;
+      el.className = "kiquota" + (k.limit && k.verbraucht>=k.limit ? " warn" : "");
+      el.innerHTML = `<span><b>KI-Belege</b> ${esc(kiQuotaTxt(k))}</span>${k.limit?`<i style="--p:${pc}%"></i>`:""}`; }
+    catch(e){ if(t!==KI_QUOTA_T) return; el.className="kiquota warn"; el.textContent=gemMsg(e); }
   }
 
   /* Vermittler (Supabase Edge Function „beleg-ki“) */
@@ -3966,7 +3984,7 @@ export function startApp(){
     finally{ clearTimeout(tm); }
     const j=await res.json().catch(()=>null);
     if(res.status===404) throw new GeminiError("noproxy", GEMINI_MSG.noproxy);
-    if(!res.ok || !j?.ok) throw new GeminiError(j?.code||"fail", j?.error || `Vermittler: ${res.status}`);
+    if(!res.ok || !j?.ok){ const e=new GeminiError(j?.code||"fail", j?.error || `Vermittler: ${res.status}`); if(j?.error) e.serverMsg=j.error; throw e; }   // Klartext vom Server hat Vorrang
     return j;
   }
 
@@ -4000,8 +4018,8 @@ export function startApp(){
     const c=Object.fromEntries(Object.entries(c0).filter(([k,v])=>v!=="" && v!=null));   // leere Felder nicht senden → Secrets in Supabase gelten
     const img=await geminiImageData(beleg), mime=img.mime_type, data=img.data, name=(beleg.name||"beleg").replace(/[^\w.\-]+/g,"_");
     if(data.length > 14*1024*1024) throw new GeminiError("big","Datei zu groß");
-    const t0=performance.now(); let raw, via="direkt", daten=null;
-    const viaProxy=async()=>{ via="Vermittler"; onModel?.(`${KI_PROV[p].kurz} über WerkDoc-Vermittler`, 0); const j=await kiProxy({provider:p, mime, data, name, cfg:c}); daten=j.data||null; return j.raw; };
+    const t0=performance.now(); let raw, via="direkt", daten=null, nutzung=null;
+    const viaProxy=async()=>{ via="Vermittler"; onModel?.(p==="docai" ? "Google Document AI über den WerkDoc-Server" : `${KI_PROV[p].kurz} über WerkDoc-Vermittler`, 0); const j=await kiProxy({provider:p, mime, data, name, cfg:c}); daten=j.data||null; nutzung=j.nutzung||null; return j.raw; };
     if(KI_PROV[p].direkt && !DIRECT_BLOCKED.has(p)){
       onModel?.(KI_PROV[p].kurz, 0);
       try{ raw=await provDirect(p, c, mime, data, name); }
@@ -4012,7 +4030,7 @@ export function startApp(){
         notiz: (daten.positionen||[]).map(x=>x.bez).filter(Boolean).slice(0,3).join(", ").slice(0,80) || null }
       : provNormalize(p, raw);
     const r=geminiParse(JSON.stringify(n));
-    return { ...r, model:`${KI_PROV[p].kurz}${daten?.parser?` · ${daten.parser==="invoice"?"Invoice":"Expense"} Parser`:""}${via==="Vermittler"?" (Vermittler)":""}`, ms:Math.round(performance.now()-t0), tried:[], daten, raw:JSON.stringify(daten||raw).slice(0,4000) };
+    return { ...r, model:`${KI_PROV[p].kurz}${daten?.parser?` · ${daten.parser==="invoice"?"Invoice":"Expense"} Parser`:""}${via==="Vermittler"&&p!=="docai"?" (Vermittler)":""}${nutzung?` · ${kiQuotaTxt(nutzung)}`:""}`, ms:Math.round(performance.now()-t0), tried:[], daten, raw:JSON.stringify(daten||raw).slice(0,4000) };
   }
   // Antworten der Anbieter → gemeinsames Format {haendler, datum, rechnungsnr, brutto, mwst_prozent}
   const unv = x => (x && typeof x==="object" && "value" in x) ? x.value : x;
@@ -4049,13 +4067,14 @@ export function startApp(){
     const steps=[]; const draw=()=>{ box.hidden=false; box.innerHTML=steps.map(x=>`<div class="${x.ok?"ok":"bad"}"><i>${x.ok?"✓":"✕"}</i><span><b>${esc(x.t)}</b><small>${esc(x.d)}</small></span></div>`).join(""); };
     const fin=ok=>{ btn.disabled=false; out.className=ok?"good":"bad"; out.textContent=ok?"✓ Bereit":"✕ Noch nicht bereit – Details unten"; };
     btn.disabled=true; out.className=""; out.textContent="Teste …";
-    if(!kiCfgOk(p,c)){ steps.push({ok:false, t:"Zugangsdaten", d:"Bitte alle Pflichtfelder ausfüllen"}); draw(); return fin(false); }
+    if(!kiCfgOk(p,c)){ steps.push({ok:false, t:p==="docai"?"Anmeldung":"Zugangsdaten", d:p==="docai"?"Bitte zuerst unter Cloud-Sync mit Ihrem WerkDoc-Konto anmelden":"Bitte alle Pflichtfelder ausfüllen"}); draw(); return fin(false); }
     for(const k of Object.keys(c)) if(c[k]==="") delete c[k];
     if(p==="docai" && c.sa){ try{ const sa=JSON.parse(c.sa); if(!sa.client_email||!sa.private_key) throw 0; steps.push({ok:true, t:"Dienstkonto (aus der App)", d:sa.client_email}); }catch(e){ steps.push({ok:false, t:"Dienstkonto", d:"Das ist kein gültiger JSON-Schlüssel eines Google-Dienstkontos"}); draw(); return fin(false); } }
     else steps.push({ok:true, t:"Zugangsdaten", d:"Vollständig"});
     draw();
     try{ const j=await kiProxy({provider:p, ping:true, cfg:c}, 25000); steps.push({ok:true, t:"WerkDoc-Vermittler", d:`Erreichbar (Version ${j.version})`});
       if(p==="docai" && j.info){ const i=j.info; steps.push({ok:true, t:"Google-Anmeldung", d:`${i.dienstkonto} · Projekt ${i.project} (${i.location})`});
+        if(i.kontingent) steps.push({ok:!(i.kontingent.limit && i.kontingent.verbraucht>=i.kontingent.limit), t:"Kontingent", d:kiQuotaTxt(i.kontingent)});
         steps.push({ok:!!(i.invoice||i.expense), t:"Parser", d:[i.invoice?"Invoice Parser ✓":"Invoice Parser fehlt", i.expense?"Expense Parser ✓":"Expense Parser fehlt (Fotos gehen dann an den Invoice Parser)"].join(" · ")}); }
       draw(); fin(true); }
     catch(e){
