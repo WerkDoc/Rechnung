@@ -432,6 +432,11 @@ textarea.input{resize:vertical;line-height:1.45}
 .dupwarn.shake{animation:dwShake .45s}
 @keyframes dwShake{20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
 .hbtn.go.dup{background:var(--amber);color:#fff}
+.kiquota{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--blue,#1380b8) 10%,transparent);font-size:13px;color:var(--text,inherit)}
+.kiquota i{display:block;height:6px;border-radius:3px;background:color-mix(in srgb,currentColor 14%,transparent);overflow:hidden;position:relative}
+.kiquota i::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--p,0%);background:var(--blue,#1380b8);border-radius:3px}
+.kiquota.warn{background:color-mix(in srgb,#e5484d 11%,transparent)}
+.kiquota.warn i::after{background:#e5484d}
 /*splash*/
 .splash{position:fixed;inset:0;z-index:500;display:flex;align-items:center;justify-content:center;padding-bottom:6vh;cursor:pointer;
   background:radial-gradient(120% 70% at 50% 40%, #173659 0%, #0e2442 55%, #091a31 100%);overflow:hidden;
@@ -1116,12 +1121,3 @@ body:has(.selbar) .toast{bottom:calc(168px + env(safe-area-inset-bottom,0px))}
 #viewTitle{display:inline-block}
 @media (prefers-reduced-motion: reduce){*{transition:none!important}.pill.s-fertig,.pill.s-fertig::before,.day .dot.r{animation:none}}
 @media (max-width:380px){.field label{min-width:90px}.tab{font-size:10.5px}.big{font-size:34px}.layouts{grid-template-columns:repeat(2,minmax(0,1fr))}.top h1{font-size:18px}}
-
-/* ---------- iPhone-App (Home-Bildschirm) ---------- */
-html{-webkit-tap-highlight-color:transparent;overscroll-behavior-y:none}
-body{overscroll-behavior-y:none;touch-action:manipulation}
-/* Statusleiste (Uhrzeit, Akku) im Navy der Kopfzeile hinterlegen */
-.is-standalone body::before{content:"";position:fixed;z-index:100;left:0;right:0;top:0;height:env(safe-area-inset-top,0px);background:var(--bar);pointer-events:none}
-/* Kein Text-Markieren bei Tipp-Elementen, Eingaben bleiben normal */
-.is-standalone button,.is-standalone .tab,.is-standalone .chip,.is-standalone .card{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
-.is-standalone input,.is-standalone textarea,.is-standalone select{font-size:16px}
