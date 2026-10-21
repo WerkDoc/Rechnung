@@ -259,7 +259,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="54";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="55";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -3910,17 +3910,17 @@ export function startApp(){
     mindee:[["key","API-Key (V2)","password","md_…"],["modelId","Modell-ID","text","UUID aus dem Mindee-Dashboard"]],
     veryfi:[["clientId","Client-ID","text","vrf…"],["user","Benutzername","text","z. B. oleg.schaefer"],["key","API-Key","password",""]],
     klippa:[["key","API-Key","password",""],["preset","Konfiguration (Slug)","text","optional, z. B. financial"]],
-    docai:[["project","Projekt-ID","text","mein-projekt-123"],["location","Region","select","eu|us"],["processor","Prozessor-ID","text","z. B. 1a2b3c4d5e6f"],["sa","Dienstkonto-Schlüssel (JSON)","textarea","Inhalt der heruntergeladenen JSON-Datei einfügen"]]
+    docai:[["project","Projekt-ID","text","werkdoc-ai"],["location","Region","select","eu|us"],["processor","Invoice-Parser-ID","text","optional – sonst aus Supabase"],["processorExpense","Expense-Parser-ID","text","optional – sonst aus Supabase"],["sa","Dienstkonto-Schlüssel (JSON)","textarea","Leer lassen (empfohlen): Der Schlüssel liegt sicher als Secret GOOGLE_SA_JSON in Supabase"]]
   };
   const KI_HELP = {
     mindee:"Im Mindee-Dashboard das Modell „Invoice“ oder „Receipt“ aus dem Katalog hinzufügen und dessen Modell-ID hier eintragen. Mindee wird zuerst direkt angesprochen; blockiert der Browser das, läuft es automatisch über den WerkDoc-Vermittler.",
     veryfi:"Veryfi erlaubt aus Sicherheitsgründen keine Aufrufe direkt aus Web-Apps. Die Belege laufen deshalb immer über den WerkDoc-Vermittler in Ihrem Supabase-Konto (einmalig einrichten).",
     klippa:"Klippa DocHorizon (heute „Doxis AI.dp“), Modell „Financial“. Wird zuerst direkt angesprochen, sonst über den WerkDoc-Vermittler.",
-    docai:"Document AI akzeptiert keinen einfachen API-Key, sondern nur ein Google-Dienstkonto. Im Google-Cloud-Projekt einen „Invoice Parser“ (oder „Expense Parser“ für Kassenbons) anlegen, ein Dienstkonto mit der Rolle „Document AI API User“ erstellen und dessen JSON-Schlüssel hier einfügen. Läuft immer über den WerkDoc-Vermittler."
+    docai:"Läuft immer über den WerkDoc-Vermittler „beleg-ki“ in Supabase. Dort liegen Dienstkonto-Schlüssel und Prozessor-IDs sicher als Secrets – die Felder hier können leer bleiben. PDF-Rechnungen gehen an den Invoice Parser, Fotos von Kassenbons an den Expense Parser. Zurück kommen Lieferant, Rechnungs-Nr., Datum, Netto, MwSt.-Sätze, Brutto und die einzelnen Positionen."
   };
   const kiProv = () => KI_PROV[S.firma.kiAnbieter] ? S.firma.kiAnbieter : "gemini";
   const kiCfgOf = (p, f=S.firma) => (f.kiCfg||{})[p] || {};
-  function kiCfgOk(p, c){ return p==="mindee" ? !!(c.key && c.modelId) : p==="veryfi" ? !!(c.clientId && c.user && c.key) : p==="klippa" ? !!c.key : p==="docai" ? !!(c.project && c.processor && c.sa) : false; }
+  function kiCfgOk(p, c){ return p==="mindee" ? !!(c.key && c.modelId) : p==="veryfi" ? !!(c.clientId && c.user && c.key) : p==="klippa" ? !!c.key : p==="docai" ? true : false; }   // Document AI: Zugang liegt als Secret in Supabase
   function kiReady(){ const p=kiProv(); return p==="gemini" ? !!geminiKey() : kiCfgOk(p, kiCfgOf(p)); }
   async function kiBeleg(beleg, onModel){ const p=kiProv(); return p==="gemini" ? geminiBeleg(beleg, onModel) : provBeleg(p, beleg, onModel); }
 
@@ -3929,7 +3929,7 @@ export function startApp(){
       return `<div data-kp="${p}" hidden>${fields.map(([k,l,t,ph])=>{ const id=`cKi_${p}_${k}`, v=esc(c[k]||"");
         if(t==="select") return `<div class="field"><label for="${id}">${l}</label><select id="${id}">${ph.split("|").map(o=>`<option value="${o}" ${(c[k]||"eu")===o?"selected":""}>${o==="eu"?"EU (eu)":"USA (us)"}</option>`).join("")}</select></div>`;
         if(t==="textarea") return `<div class="field stack"><label for="${id}">${l}</label><textarea id="${id}" class="mono" autocapitalize="off" spellcheck="false" placeholder="${esc(ph)}">${v}</textarea></div>`;
-        return `<div class="field"><label for="${id}">${l}</label><input id="${id}" type="${t}" class="mono" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${esc(ph)}" value="${v}"></div>`; }).join("")}</div>`; }).join("");
+        return `<div class="field"><label for="${id}">${l}</label><input id="${id}" type="${t}" class="mono" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="${esc(ph)}" value="${v || (p==="docai"&&k==="project" ? "werkdoc-ai" : "")}"></div>`; }).join("")}</div>`; }).join("");
   }
   function readKiCfg(){ const out={...(S.firma.kiCfg||{})};
     for(const [p,fields] of Object.entries(KI_FIELDS)){ const c={}; for(const [k] of fields){ const el=$(`#cKi_${p}_${k}`); if(el) c[k]=el.value.trim(); } out[p]=c; }
@@ -3990,19 +3990,23 @@ export function startApp(){
   }
   const DIRECT_BLOCKED = new Set();   // Anbieter, bei denen der Browser den Direktaufruf blockiert hat → gleich über den Vermittler
   async function provBeleg(p, beleg, onModel){
-    const c=kiCfgOf(p); if(!kiCfgOk(p,c)) throw new GeminiError("nokey", GEMINI_MSG.nokey);
+    const c0=kiCfgOf(p); if(!kiCfgOk(p,c0)) throw new GeminiError("nokey", GEMINI_MSG.nokey);
+    const c=Object.fromEntries(Object.entries(c0).filter(([k,v])=>v!=="" && v!=null));   // leere Felder nicht senden → Secrets in Supabase gelten
     const img=await geminiImageData(beleg), mime=img.mime_type, data=img.data, name=(beleg.name||"beleg").replace(/[^\w.\-]+/g,"_");
     if(data.length > 14*1024*1024) throw new GeminiError("big","Datei zu groß");
-    const t0=performance.now(); let raw, via="direkt";
-    const viaProxy=async()=>{ via="Vermittler"; onModel?.(`${KI_PROV[p].kurz} über WerkDoc-Vermittler`, 0); return (await kiProxy({provider:p, mime, data, name, cfg:c})).raw; };
+    const t0=performance.now(); let raw, via="direkt", daten=null;
+    const viaProxy=async()=>{ via="Vermittler"; onModel?.(`${KI_PROV[p].kurz} über WerkDoc-Vermittler`, 0); const j=await kiProxy({provider:p, mime, data, name, cfg:c}); daten=j.data||null; return j.raw; };
     if(KI_PROV[p].direkt && !DIRECT_BLOCKED.has(p)){
       onModel?.(KI_PROV[p].kurz, 0);
       try{ raw=await provDirect(p, c, mime, data, name); }
       catch(e){ if(e instanceof TypeError || e.name==="TypeError"){ DIRECT_BLOCKED.add(p); raw=await viaProxy(); } else throw e; }   // TypeError = vom Browser blockiert (CORS)
     } else raw=await viaProxy();
-    const n=provNormalize(p, raw);
+    const n = daten ? { haendler:daten.lieferant, datum:daten.datum, rechnungsnr:daten.rechnungsnr, brutto:daten.brutto,
+        mwst_prozent: daten.steuern?.length===1 ? daten.steuern[0].satz : (daten.steuern||[]).slice().sort((a,b)=>(b.steuer||0)-(a.steuer||0))[0]?.satz ?? null,
+        notiz: (daten.positionen||[]).map(x=>x.bez).filter(Boolean).slice(0,3).join(", ").slice(0,80) || null }
+      : provNormalize(p, raw);
     const r=geminiParse(JSON.stringify(n));
-    return { ...r, model:`${KI_PROV[p].kurz}${via==="Vermittler"?" (Vermittler)":""}`, ms:Math.round(performance.now()-t0), tried:[], raw:JSON.stringify(raw).slice(0,4000) };
+    return { ...r, model:`${KI_PROV[p].kurz}${daten?.parser?` · ${daten.parser==="invoice"?"Invoice":"Expense"} Parser`:""}${via==="Vermittler"?" (Vermittler)":""}`, ms:Math.round(performance.now()-t0), tried:[], daten, raw:JSON.stringify(daten||raw).slice(0,4000) };
   }
   // Antworten der Anbieter → gemeinsames Format {haendler, datum, rechnungsnr, brutto, mwst_prozent}
   const unv = x => (x && typeof x==="object" && "value" in x) ? x.value : x;
@@ -4040,10 +4044,14 @@ export function startApp(){
     const fin=ok=>{ btn.disabled=false; out.className=ok?"good":"bad"; out.textContent=ok?"✓ Bereit":"✕ Noch nicht bereit – Details unten"; };
     btn.disabled=true; out.className=""; out.textContent="Teste …";
     if(!kiCfgOk(p,c)){ steps.push({ok:false, t:"Zugangsdaten", d:"Bitte alle Pflichtfelder ausfüllen"}); draw(); return fin(false); }
-    if(p==="docai"){ try{ const sa=JSON.parse(c.sa); if(!sa.client_email||!sa.private_key) throw 0; steps.push({ok:true, t:"Dienstkonto", d:sa.client_email}); }catch(e){ steps.push({ok:false, t:"Dienstkonto", d:"Das ist kein gültiger JSON-Schlüssel eines Google-Dienstkontos"}); draw(); return fin(false); } }
+    for(const k of Object.keys(c)) if(c[k]==="") delete c[k];
+    if(p==="docai" && c.sa){ try{ const sa=JSON.parse(c.sa); if(!sa.client_email||!sa.private_key) throw 0; steps.push({ok:true, t:"Dienstkonto (aus der App)", d:sa.client_email}); }catch(e){ steps.push({ok:false, t:"Dienstkonto", d:"Das ist kein gültiger JSON-Schlüssel eines Google-Dienstkontos"}); draw(); return fin(false); } }
     else steps.push({ok:true, t:"Zugangsdaten", d:"Vollständig"});
     draw();
-    try{ const j=await kiProxy({provider:p, ping:true, cfg:c}, 25000); steps.push({ok:true, t:"WerkDoc-Vermittler", d:`Erreichbar (Version ${j.version})${p==="docai"?" · Google-Anmeldung mit dem Dienstkonto klappt":""}`}); draw(); fin(true); }
+    try{ const j=await kiProxy({provider:p, ping:true, cfg:c}, 25000); steps.push({ok:true, t:"WerkDoc-Vermittler", d:`Erreichbar (Version ${j.version})`});
+      if(p==="docai" && j.info){ const i=j.info; steps.push({ok:true, t:"Google-Anmeldung", d:`${i.dienstkonto} · Projekt ${i.project} (${i.location})`});
+        steps.push({ok:!!(i.invoice||i.expense), t:"Parser", d:[i.invoice?"Invoice Parser ✓":"Invoice Parser fehlt", i.expense?"Expense Parser ✓":"Expense Parser fehlt (Fotos gehen dann an den Invoice Parser)"].join(" · ")}); }
+      draw(); fin(true); }
     catch(e){
       if(KI_PROV[p].direkt && e.code==="proxy"){ steps.push({ok:true, t:"Direktverbindung", d:"Ohne Cloud-Anmeldung wird der Anbieter direkt angesprochen. Ob er das erlaubt, zeigt sich beim ersten Beleg."}); draw(); return fin(true); }
       steps.push({ok:false, t:"WerkDoc-Vermittler", d:gemMsg(e)}); draw(); fin(false); }
