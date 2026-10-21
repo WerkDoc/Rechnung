@@ -259,7 +259,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="56";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="57";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -320,7 +320,7 @@ export function startApp(){
   /* Wischen nach links/rechts → nächster/vorheriger Tab.
      Robust für iPhone: lauscht früh (Capture) auf Touch- UND Pointer-Eingaben, nur eindeutige Ausschlüsse. */
   (()=>{ let sw=null, lastFire=0;
-    const BLOCK="input,textarea,select,[contenteditable],.chips,.nodrag,#tabs,.top,.sheet,.picker,.viewer,.menu,.auth,.bfull,.tour,.selbar,.fab,.scrim,.splash,.sigpad,.delmodal";
+    const BLOCK="input,textarea,select,[contenteditable],.chips,.nodrag,#tabs,.top,.sheet,.picker,.viewer,.menu,.auth,.bfull,.tour,.selbar,.fab,.scrim,.splash,.sigpad,.delmodal,.micpanel";
     const open = id => { const e=document.getElementById(id); return !!e && !e.hidden; };
     const start = (x,y,el,src) => {
       sw=null; if(UI.sel || open("sheet") || open("picker") || open("viewer") || open("tour")) return;
@@ -850,7 +850,8 @@ export function startApp(){
     openSheet(a?`Auftrag <small>#${esc(a.nr)}</small>`:"Neuer Auftrag", `
       <div class="group"><span class="glabel">Gerät</span><div class="box">
         <div class="field stack"><label for="fGeraet">Gerät &amp; Reparatur</label><input id="fGeraet" placeholder="z. B. iPhone 13 Pro – Display" value="${esc(a?.geraet)}"></div>
-        <div class="field stack"><label for="fProblem">Fehlerbeschreibung</label><textarea id="fProblem" placeholder="Was ist kaputt? Zustand bei Annahme?">${esc(a?.problem)}</textarea></div>
+        <div class="field stack micfield"><label for="fProblem">Fehlerbeschreibung</label><textarea id="fProblem" placeholder="Was ist kaputt? Zustand bei Annahme? – oder Mikrofon antippen und einsprechen">${esc(a?.problem)}</textarea>${micBtn("fProblem","problem")}</div>
+        <div class="field stack micfield"><label for="fBericht">Reparaturbericht <small>(für den Kunden)</small></label><textarea id="fBericht" placeholder="Was wurde gemacht? – Mikrofon antippen und frei erzählen, die KI formuliert den Bericht">${esc(a?.bericht)}</textarea>${micBtn("fBericht","bericht")}</div>
         <div class="field"><label for="fImei">IMEI / Seriennr.</label><input id="fImei" class="mono" placeholder="optional" value="${esc(a?.imei)}"></div>
         <div class="field"><label for="fZubehoer">Zubehör</label><input id="fZubehoer" placeholder="z. B. Hülle, Ladekabel" value="${esc(a?.zubehoer)}"></div>
       </div></div>
@@ -870,7 +871,7 @@ export function startApp(){
       const d=val("fDate"), tm=val("fTime");
       let status=val("fStatus"), erledigt=val("fErl");
       if(erledigt && STATUS[status].n<3) status="fertig";
-      const obj={...(a||{id:uid(),nr:nextJobNr(),created:today()}), geraet, problem:val("fProblem"), imei:val("fImei"), zubehoer:val("fZubehoer"), kundeId:k.id, termin:d?(tm?`${d}T${tm}`:d):"", erledigt, status, positionen:readPos()};
+      const obj={...(a||{id:uid(),nr:nextJobNr(),created:today()}), geraet, problem:val("fProblem"), bericht:$("#fBericht").value.trim(), imei:val("fImei"), zubehoer:val("fZubehoer"), kundeId:k.id, termin:d?(tm?`${d}T${tm}`:d):"", erledigt, status, positionen:readPos()};
       jfCommit(obj);
       if(status==="abgeholt" && !obj.abgeholtAm) obj.abgeholtAm=today();
       save("auftraege",obj); toast(a?"Auftrag gespeichert":`Auftrag #${obj.nr} angelegt`);
@@ -878,6 +879,7 @@ export function startApp(){
       if(d){ UI.calMonth=d.slice(0,7); UI.calDay=d; }
     });
     bindPos(); bindKundeSelect("a"); jfInit(a);
+    bindMics($("#sBody"), () => ({ geraet:val("fGeraet"), problem:val("fProblem"), positionen:readPos() }));
     if(!S.kunden.length && !a){ $("#aNewKBox").hidden=false; }
     const dj=$("#delJob"); if(dj) dj.onclick=()=>confirmBox(`Auftrag #${esc(a.nr)} endgültig löschen? Rechnungen bleiben erhalten.`, ()=>{ remove("auftraege",a.id); closeSheet(); toast("Auftrag gelöscht"); });
   }
@@ -903,7 +905,8 @@ export function startApp(){
         ${a.abgeholtAm?`<div class="kv"><span>Abgeholt am</span><span>${deDate(a.abgeholtAm)}</span></div>`:""}
         ${a.imei?`<div class="kv"><span>IMEI / Seriennr.</span><span class="mono">${esc(a.imei)}</span></div>`:""}
         ${a.zubehoer?`<div class="kv"><span>Zubehör</span><span>${esc(a.zubehoer)}</span></div>`:""}
-        ${a.problem?`<div class="kv" style="flex-direction:column;gap:4px"><span>Fehler</span><span style="text-align:left;font-weight:500">${esc(a.problem)}</span></div>`:""}
+        ${a.problem?`<div class="kv" style="flex-direction:column;gap:4px"><span>Fehler</span><span style="text-align:left;font-weight:500;white-space:pre-line">${esc(a.problem)}</span></div>`:""}
+        ${a.bericht?`<div class="kv" style="flex-direction:column;gap:4px"><span>Reparaturbericht</span><span style="text-align:left;font-weight:500;white-space:pre-line">${esc(a.bericht)}</span></div>`:""}
       </div>
       <div class="group"><span class="glabel">Positionen</span><div class="box">
         ${(a.positionen||[]).map(p=>`<div class="kv"><span style="color:var(--fg)">${numIn(p.menge)} ${esc(p.einheit||"Stk.")} · ${esc(p.bez)}</span><span class="num">${eur(p.menge*p.preis)}</span></div>`).join("") || `<div class="kv"><span>Noch keine Positionen</span><span></span></div>`}
@@ -1007,6 +1010,8 @@ export function startApp(){
     bindTaxMode("eTax", m=>{ $("#eKu").checked = m==="ku"; if(m!=="ku") $("#eBrutto").checked = m==="brutto"; kuSync(); });
     const keepK=()=>{ if(d._kundeNeu){ save("kunden",d._kundeNeu); d._kundeNeu=null; } };
     const ns=$("#eNoteStd"); if(ns) ns.onclick=()=>{ $("#eNotiz").value=defaultNote(d.typ); };
+    { const t=$("#eNotiz"); if(t && !t.closest(".micfield")){ const w=document.createElement("div"); w.className="micfield"; t.before(w); w.appendChild(t); w.insertAdjacentHTML("beforeend", micBtn("eNotiz","notiz")); }
+      bindMics($("#sBody"), () => ({ geraet:d.geraet||"", problem:"", positionen:readPos() })); }
     $$("[data-typ]").forEach(b=>b.onclick=()=>{ collectEditor(d); keepK(); const old=d.typ; d.typ=b.dataset.typ;
       if(old!==d.typ && (old==="rechnung")!==(d.typ==="rechnung")){ d.faellig=addDays(d.datum, d.typ==="rechnung"?+(S.firma.ziel??14):30); if(!d.notiz || d.notiz===defaultNote(old)) d.notiz=defaultNote(d.typ); }
       renderEditor(d,isEdit); });
@@ -1121,7 +1126,8 @@ export function startApp(){
   }
 
   /* ---------- A4 paper ---------- */
-  const noteBody = (X,r) => [X.pay, r.notiz ? esc(r.notiz).replace(/\n/g,"<br>") : ""].filter(Boolean).join("<br><br>");
+  const berichtOf = r => { if(r.berichtAus) return ""; const a=r.auftragId && S.auftraege.find(x=>x.id===r.auftragId); return a?.bericht && dTyp(r)==="rechnung" ? a.bericht : ""; };
+  const noteBody = (X,r) => [berichtOf(r) ? `<b>Durchgeführte Arbeiten</b><br>${esc(berichtOf(r)).replace(/\n/g,"<br>")}` : "", X.pay, r.notiz ? esc(r.notiz).replace(/\n/g,"<br>") : ""].filter(Boolean).join("<br><br>");
   function kundenNr(k){ if(!k||!k.id) return k?.nr?String(k.nr):""; if(k.nr) return String(k.nr);
     const sorted=[...S.kunden].sort((a,b)=>(a.created||"").localeCompare(b.created||"")||a.id.localeCompare(b.id)); const i=sorted.findIndex(x=>x.id===k.id); return i<0?"":String(1001+i); }
   function nextKundenNr(){ return String(Math.max(1000, ...S.kunden.map(k=>parseInt(kundenNr(k))||0))+1); }
@@ -4110,6 +4116,180 @@ export function startApp(){
     // ohne Cloud-Konto: alle Daten in dieser App entfernen
     if(mode==="db"){ for(const c of COLLS){ const ids=S[c].map(x=>x.id); if(ids.length) await _removeMany(c, ids); } try{ for(const id of (await BILD.tx("readonly", s=>s.getAllKeys()))||[]) await BILD.del(id); }catch(e){} await saveFirma({}); }
     await wipeLocal(); UNDO.length=0; UI.view="auftraege"; render(); toast("Alle Daten wurden gelöscht");
+  }
+
+  /* ===================== Sprachnotiz: einsprechen → Text → sauberer Kundenbericht ===================== */
+  const ICO_MIC=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>`;
+  const MIC_KIND = {
+    problem:{t:"Fehlerbeschreibung einsprechen", bsp:"z. B. „iPhone 13, ist runtergefallen, Display gesprungen, Touch unten geht nicht, Face ID ging vorher noch …“",
+      auftrag:`Erstelle eine FEHLERBESCHREIBUNG BEI GERÄTEANNAHME:
+  - 1 bis 4 kurze, sachliche Sätze im Präsens.
+  - Inhalt: vom Kunden geschilderter Fehler, sichtbare Schäden/Zustand, Vorgeschichte (Sturz, Wasser, Fremdreparatur) – nur was gesagt wurde.
+  - Keine Anrede, keine Preise, keine Vermutungen über die Ursache, wenn sie nicht genannt wurde.`},
+    bericht:{t:"Reparaturbericht einsprechen", bsp:"z. B. „Display getauscht, Original-OLED, Kleber neu, Face ID getestet geht, Akku hat nur 78 Prozent, würde ich tauschen …“",
+      auftrag:`Erstelle einen REPARATURBERICHT FÜR DEN KUNDEN (steht auf der Rechnung):
+  - Optional 1 Satz Befund (was festgestellt wurde).
+  - Danach die durchgeführten Arbeiten als Liste, jede Zeile beginnt mit "• ", im Perfekt/Passiv („Display wurde ersetzt“, „Rahmen gereinigt und neu verklebt“).
+  - Danach Ergebnis des Funktionstests in 1 Satz (nur wenn erwähnt).
+  - Zum Schluss ggf. "Hinweis: …" mit Empfehlungen (z. B. Akkutausch), nur wenn erwähnt.
+  - Höchstens 8 Zeilen, keine Preise, keine internen Notizen (Lieferant, Einkaufspreis, Ärger, Zeitdruck).`},
+    notiz:{t:"Hinweis für den Beleg einsprechen", bsp:"z. B. „Garantie sechs Monate aufs Display, nicht auf Wasserschäden …“",
+      auftrag:`Erstelle einen kurzen HINWEISTEXT FÜR EINEN BELEG (Rechnung/Angebot): 1 bis 3 höfliche, sachliche Sätze.`}
+  };
+  function micBtn(target, kind){ return `<button type="button" class="micbtn" data-mic="${target}" data-kind="${kind}" aria-label="${MIC_KIND[kind].t}">${ICO_MIC}</button>`; }
+  let MIC_CTX=()=>({});
+  function bindMics(root, ctx){ if(ctx) MIC_CTX=ctx; $$(".micbtn", root).forEach(b=>b.onclick=e=>{ e.preventDefault(); startVoice(b.dataset.mic, b.dataset.kind); }); }
+
+  /* Füllwörter raus, Satzzeichen per Sprache, Großschreibung – für die Variante ohne KI */
+  function cleanSpeech(t){
+    let s=" "+String(t||"").replace(/\s+/g," ")+" ";
+    s=s.replace(/\s(?:komma)\s/gi,", ").replace(/\s(?:punkt)\s/gi,". ").replace(/\s(?:fragezeichen)\s/gi,"? ").replace(/\s(?:doppelpunkt)\s/gi,": ").replace(/\s(?:neue zeile|neuer absatz|absatz)\s/gi,"\n");
+    s=s.replace(/(^|[\s,])(?:äh+m*|ähm|öhm|hm+|halt|quasi|sozusagen|irgendwie|ja genau|genau|okay|ok|also)(?=[\s,.!?]|$)/gi,"$1");
+    for(let i=0;i<2;i++) s=s.replace(/(^|\s)((?:\p{L}+\s+){0,2}\p{L}+)(?:\s+\2)+(?=\s|[,.!?]|$)/giu,"$1$2");   // „das Display das Display“ → „das Display“
+    s=s.replace(/\s+([,.!?:])/g,"$1").replace(/([,.!?:])(?=\p{L})/gu,"$1 ").replace(/,\s*,/g,",").replace(/[ \t]+/g," ").replace(/\s*\n\s*/g,"\n").trim();
+    s=s.replace(/([^.!?:\n])\n/g,"$1.\n");
+    s=s.replace(/(^|[.!?\n]\s*)(\p{Ll})/gu,(m,a,b)=>a+b.toUpperCase());
+    if(s && !/[.!?]$/.test(s)) s+=".";
+    return s;
+  }
+
+  /* Aufnahme → 16-kHz-Mono-WAV (klein, versteht Gemini sicher – auch die AAC/MP4-Aufnahmen vom iPhone) */
+  async function toWav16k(blob){
+    const AC=window.AudioContext||window.webkitAudioContext, OAC=window.OfflineAudioContext||window.webkitOfflineAudioContext;
+    const ac=new AC(); const ab=await blob.arrayBuffer();
+    const buf=await new Promise((res,rej)=>{ const p=ac.decodeAudioData(ab, res, rej); if(p&&p.then) p.then(res,rej); });
+    try{ ac.close?.(); }catch(e){}
+    const rate=16000, len=Math.max(1,Math.ceil(buf.duration*rate)), off=new OAC(1,len,rate), src=off.createBufferSource();
+    src.buffer=buf; src.connect(off.destination); src.start(0);
+    const out=await new Promise((res,rej)=>{ off.oncomplete=e=>res(e.renderedBuffer); const p=off.startRendering(); if(p&&p.then) p.then(res,rej); });
+    const d=out.getChannelData(0), dv=new DataView(new ArrayBuffer(44+d.length*2)), w=(o,s)=>{ for(let i=0;i<s.length;i++) dv.setUint8(o+i,s.charCodeAt(i)); };
+    w(0,"RIFF"); dv.setUint32(4,36+d.length*2,true); w(8,"WAVE"); w(12,"fmt "); dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
+    dv.setUint32(24,rate,true); dv.setUint32(28,rate*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true); w(36,"data"); dv.setUint32(40,d.length*2,true);
+    let peak=0; for(let i=0;i<d.length;i++) peak=Math.max(peak,Math.abs(d[i])); const g=peak>0.02 ? Math.min(4, .9/peak) : 1;   // leise Aufnahmen etwas anheben
+    for(let i=0;i<d.length;i++){ const v=Math.max(-1,Math.min(1,d[i]*g)); dv.setInt16(44+i*2, v<0?v*0x8000:v*0x7fff, true); }
+    return { b64:bytesB64(new Uint8Array(dv.buffer)), mime:"audio/wav", sec:buf.duration };
+  }
+  function bytesB64(u8){ let s=""; for(let i=0;i<u8.length;i+=0x8000) s+=String.fromCharCode.apply(null, u8.subarray(i,i+0x8000)); return btoa(s); }
+  const blobB64 = b => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(",")[1]); r.onerror=rej; r.readAsDataURL(b); });
+
+  /* KI: Audio (oder roher Text) → {transkript, text} */
+  function voicePrompt(kind, ctx){
+    const k=MIC_KIND[kind]||MIC_KIND.problem;
+    return `Du bist Assistent in der Handy-Reparaturwerkstatt „${S.firma.name||"RepairMobile"}“ (Displaytausch, Akkutausch, Ladebuchse, Mikrolöten/Board-Reparatur).
+  Ein Techniker hat an der Werkbank eine Sprachnotiz aufgenommen – oft mit Füllwörtern, Wiederholungen, Selbstkorrekturen und Werkstattjargon.
+
+  Aufgabe:
+  1. "transkript": möglichst wortgetreue Abschrift auf Deutsch.
+  2. "text": daraus ein sauberer, professioneller, kundenfertiger Text.
+  ${k.auftrag}
+
+  Regeln für "text":
+  - Korrektes Deutsch, sachlich und freundlich, keine Umgangssprache, keine Füllwörter („äh“, „halt“, „quasi“).
+  - Bei Selbstkorrekturen („nee, ich meine …“) nur die korrigierte Aussage übernehmen.
+  - NICHTS erfinden: keine Teile, Tests, Ursachen, Garantien oder Zahlen, die nicht gesagt wurden.
+  - Fachbegriffe und Modellnamen korrekt schreiben (iPhone 13 Pro, Galaxy S22, Face ID, Flexkabel, Backcover, Ladebuchse, Akku, Mainboard).
+  - Zahlen als Ziffern (78 %, 2 Stunden).
+  - Ist nichts Verständliches gesagt worden: "text" leer lassen.
+  ${ctx.geraet?`\nGerät laut Auftrag: ${ctx.geraet}`:""}${ctx.problem && kind!=="problem"?`\nFehlerbeschreibung bei Annahme: ${ctx.problem}`:""}${ctx.positionen?.length?`\nPositionen im Auftrag: ${ctx.positionen.map(p=>p.bez).filter(Boolean).join(", ")}`:""}
+
+  Antworte NUR mit JSON: {"transkript":"…","text":"…"}`;
+  }
+  function voiceParse(t){ const s=String(t||"").replace(/^```(?:json)?\s*/i,"").replace(/```\s*$/,""); const a=s.indexOf("{"), b=s.lastIndexOf("}");
+    if(a<0||b<a) throw new GeminiError("parse","keine JSON-Antwort"); const o=JSON.parse(s.slice(a,b+1));
+    return { transkript:String(o.transkript||"").trim(), text:String(o.text||"").replace(/\r/g,"").replace(/\n{3,}/g,"\n\n").trim() }; }
+  async function voiceKi(kind, ctx, audio, rawText){
+    const parts=[{text:voicePrompt(kind, ctx)}];
+    if(audio) parts.push({inline_data:{mime_type:audio.mime, data:audio.b64}});
+    else parts.push({text:`Sprachnotiz (bereits als Text erkannt):\n"""${rawText}"""`});
+    const r=await geminiCall(parts, {json:false, timeout:60000, total:110000});
+    return { ...voiceParse(r.text), model:r.model };
+  }
+
+  /* Aufnahme-Fenster */
+  let VOICE=null;
+  async function startVoice(target, kind){
+    if(VOICE) return; const ta=$("#"+target); if(!ta) return;
+    const k=MIC_KIND[kind]||MIC_KIND.problem, hasKey=!!geminiKey();
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    const canRec=!!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+    if(!canRec && !SR){ toast("Dieses Gerät unterstützt keine Sprachaufnahme – bitte die Diktierfunktion der Tastatur nutzen"); return; }
+    const useAudio = hasKey && canRec;                      // bester Weg: Ton an Gemini (Transkript + Aufbereitung in einem Schritt)
+    $("#micpanel")?.remove();
+    document.body.insertAdjacentHTML("beforeend", `<div class="micpanel" id="micpanel" role="dialog" aria-label="${k.t}"><div class="mpcard">
+      <div class="mphead"><span class="mpdot"></span><b>${k.t}</b><span class="mptime num" id="mpTime">0:00</span></div>
+      <div class="mpwave" id="mpWave">${"<i></i>".repeat(28)}</div>
+      <div class="mplive hint" id="mpLive">${k.bsp}</div>
+      <div class="mpbusy"><span class="ocrspin"></span><span id="mpBusyTxt">KI formuliert den Text …</span></div>
+      <div class="mpbtns"><button class="btn ghost" id="mpCancel">Abbrechen</button><button class="btn accent" id="mpDone">■ Fertig</button></div>
+      <small class="mpnote">${useAudio?"Frei sprechen – Gemini macht daraus einen sauberen Text. Die Aufnahme wird nicht gespeichert.":hasKey?"Spracherkennung des Geräts · Gemini formuliert danach den Text.":"Spracherkennung des Geräts · für fachlich formulierte Texte Gemini-Key unter Firmendaten eintragen."}</small></div></div>`);
+    const panel=$("#micpanel"); requestAnimationFrame(()=>panel.classList.add("on"));
+    const V=VOICE={target, kind, ta, chunks:[], live:"", fin:"", t0:Date.now(), stopped:false, cancel:false};
+    const bars=$$("#mpWave i"), live=$("#mpLive");
+    const close=()=>{ panel.classList.remove("on"); setTimeout(()=>panel.remove(),300); cleanup(); VOICE=null; };
+    const cleanup=()=>{ clearInterval(V.tick); cancelAnimationFrame(V.raf); try{ V.rec?.state!=="inactive" && V.rec?.stop(); }catch(e){} try{ V.sr?.abort(); }catch(e){} V.stream?.getTracks().forEach(t=>t.stop()); try{ V.ac?.close(); }catch(e){} };
+    V.tick=setInterval(()=>{ const s=Math.floor((Date.now()-V.t0)/1000); $("#mpTime").textContent=`${Math.floor(s/60)}:${pad(s%60)}`; if(s>=180) $("#mpDone")?.click(); }, 250);
+    $("#mpCancel").onclick=()=>{ V.cancel=true; close(); };
+    try{
+      if(canRec){
+        V.stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true}});
+        const AC=window.AudioContext||window.webkitAudioContext; V.ac=new AC(); const an=V.ac.createAnalyser(); an.fftSize=256; V.ac.createMediaStreamSource(V.stream).connect(an);
+        const data=new Uint8Array(an.frequencyBinCount);
+        const draw=()=>{ an.getByteFrequencyData(data); bars.forEach((b,i)=>{ const v=data[2+i*2]||0; b.style.height=Math.max(6, Math.min(56, v/255*64))+"px"; }); V.raf=requestAnimationFrame(draw); }; draw();
+        if(useAudio){ const mt=["audio/mp4","audio/webm;codecs=opus","audio/webm"].find(t=>MediaRecorder.isTypeSupported?.(t));
+          V.rec=new MediaRecorder(V.stream, mt?{mimeType:mt}:undefined); V.rec.ondataavailable=e=>{ if(e.data?.size) V.chunks.push(e.data); }; V.rec.start(1000); }
+      }
+      if(SR && !useAudio){
+        const sr=V.sr=new SR(); sr.lang="de-DE"; sr.continuous=true; sr.interimResults=true;
+        sr.onresult=e=>{ let fin="", tmp=""; for(const r of e.results){ (r.isFinal? (fin+=r[0].transcript+" ") : (tmp+=r[0].transcript)); } V.fin=fin; live.classList.remove("hint"); live.textContent=(fin+tmp).trim()||"…"; };
+        sr.onerror=e=>{ if(e.error==="not-allowed") { toast("Mikrofon/Spracherkennung nicht erlaubt"); close(); } };
+        sr.onend=()=>{ if(!V.stopped && !V.cancel){ try{ sr.start(); }catch(e){} } };    // iOS beendet gern nach Pausen → weiter zuhören
+        sr.start();
+      } else if(useAudio){ live.textContent="Aufnahme läuft – einfach frei erzählen."; }
+    }catch(e){
+      close(); toast(e?.name==="NotAllowedError" ? "Mikrofon-Zugriff verweigert – in den iPhone-Einstellungen für WerkDoc/Safari erlauben" : "Mikrofon nicht verfügbar"); return;
+    }
+    $("#mpDone").onclick=async()=>{
+      if(V.stopped) return; V.stopped=true; clearInterval(V.tick); cancelAnimationFrame(V.raf);
+      panel.classList.add("busy"); $("#mpDone").hidden=true;
+      try{
+        let res;
+        if(useAudio){
+          $("#mpBusyTxt").textContent="Aufnahme wird vorbereitet …";
+          const blob=await new Promise(r=>{ V.rec.onstop=()=>r(new Blob(V.chunks,{type:V.rec.mimeType||"audio/mp4"})); V.rec.stop(); });
+          V.stream.getTracks().forEach(t=>t.stop());
+          if(blob.size<1200 || Date.now()-V.t0<1200) throw new Error("Zu kurz – bitte etwas länger sprechen");
+          let audio; try{ audio=await toWav16k(blob); }catch(e){ audio={b64:await blobB64(blob), mime:(blob.type||"audio/mp4").split(";")[0]}; }
+          if(V.cancel) return;
+          $("#mpBusyTxt").textContent="KI hört zu und formuliert den Text …";
+          res=await voiceKi(kind, MIC_CTX(), audio);
+        } else {
+          try{ V.sr?.stop(); }catch(e){} await new Promise(r=>setTimeout(r,500));
+          const raw=(V.fin||live.textContent||"").replace(/^…$/,"").trim();
+          if(!raw || live.classList.contains("hint")) throw new Error("Es wurde nichts erkannt – bitte nochmal versuchen");
+          if(hasKey){ $("#mpBusyTxt").textContent="KI formuliert den Text …"; try{ res=await voiceKi(kind, MIC_CTX(), null, raw); }catch(e){ res={transkript:raw, text:cleanSpeech(raw), lokal:true, err:e}; } }
+          else res={transkript:raw, text:cleanSpeech(raw), lokal:true};
+        }
+        if(V.cancel) return;
+        if(!res.text) throw new Error("Es wurde nichts Verständliches erkannt – bitte nochmal versuchen");
+        close(); voiceInsert(ta, res);
+      }catch(e){
+        if(V.cancel) return;
+        close(); toast(e instanceof GeminiError ? "KI nicht verfügbar: "+gemMsg(e) : (e.message||"Sprachnotiz fehlgeschlagen"));
+      }
+    };
+  }
+  function voiceInsert(ta, res){
+    const before=ta.value, sep=before.trim() ? (before.endsWith("\n")?"\n":"\n\n") : "";
+    const ki=before+sep+res.text, roh=before+sep+res.transkript;
+    ta.value=ki; ta.dispatchEvent(new Event("input",{bubbles:true}));
+    ta.classList.remove("micnew"); void ta.offsetWidth; ta.classList.add("micnew");
+    const fit=()=>{ ta.style.height="auto"; ta.style.height=Math.min(340, ta.scrollHeight+6)+"px"; }; fit(); requestAnimationFrame(fit);
+    const field=ta.closest(".micfield")||ta.parentElement; field.nextElementSibling?.classList.contains("micres") && field.nextElementSibling.remove();
+    field.insertAdjacentHTML("afterend", `<div class="micres">✓ ${res.lokal?"Bereinigt":"Von KI formuliert"}${res.transkript&&res.transkript!==res.text?` · <button type="button" data-mo>Original anzeigen</button>`:""} · <button type="button" data-mu>Rückgängig</button></div>`);
+    const box=field.nextElementSibling;
+    box.querySelector("[data-mu]").onclick=()=>{ ta.value=before; ta.dispatchEvent(new Event("input",{bubbles:true})); fit(); box.remove(); };
+    const mo=box.querySelector("[data-mo]"); if(mo) mo.onclick=()=>{ const raw=ta.value===roh; ta.value = raw ? ki : roh; fit(); mo.textContent = raw ? "Original anzeigen" : "KI-Version anzeigen"; };
+    toast(res.lokal ? (res.err ? "KI nicht erreichbar – Text nur bereinigt" : "Text übernommen") : "Text übernommen – bitte kurz prüfen");
   }
 
   /* ---------- start ---------- */
