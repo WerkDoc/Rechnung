@@ -259,7 +259,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="59";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="60";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -2871,7 +2871,7 @@ export function startApp(){
     if(!el){ document.body.insertAdjacentHTML("beforeend", `<div id="auth" class="auth" role="dialog" aria-modal="true" aria-labelledby="authTitle"></div>`); el=$("#auth"); }
     el.hidden=false; document.documentElement.classList.add("auth-open");
     const logo="";
-    const brand=`<div class="au-brand"><h1>WerkDoc<span>by RM</span></h1><p>Einfach. Smart. Digital.</p></div>`;
+    const brand=`<div class="au-brand"><h1><b class="au-w">Werk<i>Doc</i></b><span>by RM</span></h1><p>Einfach. Smart. Digital.</p></div>`;
     const pw=(id,ph,lbl="Passwort",auto="current-password")=>`<div class="au-f"><div class="au-l"><label for="${id}">${lbl}</label><button type="button" class="au-show" data-pw="${id}">Anzeigen</button></div><input id="${id}" type="password" autocomplete="${auto}" placeholder="${ph}"></div>`;
     const fld=(id,lbl,type="text",ph="",auto="")=>`<div class="au-f"><label for="${id}">${lbl}</label><input id="${id}" type="${type}" placeholder="${ph}" ${auto?`autocomplete="${auto}"`:""} ${type==="email"?'inputmode="email" autocapitalize="off" spellcheck="false"':""}></div>`;
     const V={
