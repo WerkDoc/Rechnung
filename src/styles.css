@@ -432,6 +432,11 @@ textarea.input{resize:vertical;line-height:1.45}
 .dupwarn.shake{animation:dwShake .45s}
 @keyframes dwShake{20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(3px)}}
 .hbtn.go.dup{background:var(--amber);color:#fff}
+/* Natives App-Gefühl: langes Drücken markiert keinen Text und öffnet kein iOS-Kontextmenü */
+html,body,#root,#app{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+/* Ausnahme: Eingabefelder & bewusst kopierbare Texte bleiben markierbar (Einfügen, Cursor setzen, Suchen) */
+input,textarea,select,[contenteditable]:not([contenteditable="false"]),.selectable,.selectable *,.ocrtxt{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+input[type=checkbox],input[type=radio],input[type=range],input[type=button],input[type=submit]{-webkit-user-select:none;user-select:none}
 .kiquota{display:flex;flex-direction:column;gap:6px;margin:4px 0 10px;padding:10px 12px;border-radius:12px;background:color-mix(in srgb,var(--blue,#1380b8) 10%,transparent);font-size:13px;color:var(--text,inherit)}
 .kiquota i{display:block;height:6px;border-radius:3px;background:color-mix(in srgb,currentColor 14%,transparent);overflow:hidden;position:relative}
 .kiquota i::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--p,0%);background:var(--blue,#1380b8);border-radius:3px}
