@@ -259,7 +259,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="61";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="62";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -4319,6 +4319,11 @@ export function startApp(){
     const mo=box.querySelector("[data-mo]"); if(mo) mo.onclick=()=>{ const raw=ta.value===roh; ta.value = raw ? ki : roh; fit(); mo.textContent = raw ? "Original anzeigen" : "KI-Version anzeigen"; };
     toast(res.lokal ? (res.err ? "KI nicht erreichbar – Text nur bereinigt" : "Text übernommen") : "Text übernommen – bitte kurz prüfen");
   }
+
+  /* ---------- Kein Zoomen der ganzen App (natives App-Gefühl) ---------- */
+  // iOS ignoriert „user-scalable=no“ → Pinch-Gesten der Seite hier abfangen. Der Kalender-Zoom nutzt eigene Touch-Events und funktioniert weiter.
+  for(const ev of ["gesturestart","gesturechange","gestureend"]) document.addEventListener(ev, e=>e.preventDefault(), {passive:false});
+  document.addEventListener("touchmove", e=>{ if(e.touches.length>1 && e.cancelable) e.preventDefault(); }, {passive:false});
 
   /* ---------- start ---------- */
   document.addEventListener("touchstart", ()=>{}, {passive:true});
