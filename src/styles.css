@@ -434,6 +434,8 @@ textarea.input{resize:vertical;line-height:1.45}
 .hbtn.go.dup{background:var(--amber);color:#fff}
 /* Natives App-Gefühl: langes Drücken markiert keinen Text und öffnet kein iOS-Kontextmenü */
 html,body,#root,#app{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+/* kein Doppeltipp-Zoom (Pinch für die Seite wird per Script gesperrt, der Kalender-Pinch bleibt) */
+html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 /* Ausnahme: Eingabefelder & bewusst kopierbare Texte bleiben markierbar (Einfügen, Cursor setzen, Suchen) */
 input,textarea,select,[contenteditable]:not([contenteditable="false"]),.selectable,.selectable *,.ocrtxt{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
 input[type=checkbox],input[type=radio],input[type=range],input[type=button],input[type=submit]{-webkit-user-select:none;user-select:none}
