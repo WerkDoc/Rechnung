@@ -697,40 +697,40 @@ html.auth-open, html.auth-open body{overflow:hidden}
 .lay-kompakt .note{margin-top:10px}
 .lay-kompakt .greet{margin-top:14px}
 
-/* Neutral */
-.paper.lay-neutral{padding:50px 76px 34px;font-size:11px;color:#1d1d1f}
+/* Neutral – gleiche Maße wie rechnungPdf.js (1 mm = 3,78 px) */
+.paper.lay-neutral{padding:30px 60px 20px 79px;font-size:12.4px;color:#1a1a1a;line-height:1.45}
 .nt-logo{display:flex;justify-content:center}
-.lay-neutral .logo{max-height:92px;max-width:300px}
-.nt-head{display:flex;justify-content:space-between;gap:24px;margin-top:62px}
-.nt-sender{font-size:8.5px;font-weight:700;color:#1d1d1f;white-space:nowrap}
-.nt-sender i{font-style:normal;margin:0 5px}
-.lay-neutral .addr{margin-top:12px;font-size:12px;line-height:1.55;min-height:80px}
-.nt-meta{display:grid;grid-template-columns:auto auto;gap:5px 22px;align-self:flex-start;align-items:baseline}
-.nt-meta span{font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#4a4f57}
-.nt-meta b{font-size:9.5px;font-weight:700}
-.nt-title{display:flex;justify-content:space-between;align-items:baseline;margin-top:58px}
-.nt-title b{font-size:18px;font-weight:700;letter-spacing:-.01em}
-.nt-title span{font-size:11.5px}
-.nt-sub{font-size:11px;margin-top:16px;line-height:1.5}
-.nt-tbl{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
-.nt-tbl th{border-bottom:0;background:#e4e4e4;font-weight:700;text-align:left;padding:8px 10px;font-size:11px}
-.nt-tbl td{border-bottom:0;font-size:11px;padding:9px 10px;vertical-align:top}
-.nt-tbl tbody:first-of-type tr:nth-child(even) td{background:#f1f1f1}
+.lay-neutral .logo{max-height:87px;max-width:318px}
+.nt-head{display:flex;justify-content:space-between;gap:24px;margin-top:70px}
+.nt-sender{font-size:8.4px;white-space:pre;color:#1a1a1a}
+.lay-neutral .addr{margin-top:34px;font-size:12.7px;line-height:1.18;min-height:80px}
+.nt-meta{width:249px;align-self:flex-start;margin-top:12px;margin-right:-6px}
+.nt-meta .nt-nr,.nt-meta .nt-mg{display:grid;grid-template-columns:1fr auto}
+.nt-meta .nt-nr span{font-size:15.3px}
+.nt-meta .nt-mg{font-size:9.3px;line-height:1.57;margin-top:2px}
+.nt-meta .nt-mg+.nt-mg{margin-top:10px}
+.nt-meta .r{text-align:right}
+.nt-title{margin-top:62px;padding-left:5px}
+.nt-title b{font-size:16.7px;font-weight:700}
+.nt-sub{font-size:12.4px;margin-top:30px;line-height:1.5;color:#444;padding-left:5px}
+.nt-tbl{width:calc(100% + 0px);border-collapse:collapse;margin-top:10px;font-size:12.4px;margin-left:5px}
+.nt-tbl th{border-bottom:0;background:#ebebeb;font-weight:700;text-align:left;padding:4px 4px;font-size:12.4px}
+.nt-tbl td{border-bottom:0;font-size:12.4px;padding:5px 4px 4px;vertical-align:top;line-height:1.75}
+.nt-tbl th:first-child,.nt-tbl td:first-child{width:34px;padding-left:5px}
+.nt-tbl th:nth-child(3){width:78px}.nt-tbl th:nth-child(4){width:104px}.nt-tbl th:nth-child(5){width:108px}
+.nt-tbl td b{font-weight:700}
 .nt-tbl .r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-.nt-tbl .n{display:inline-block;width:30px}
-.nt-tbl .dd{display:flex}
-.nt-tbl .d{flex:1}
-.nt-sum td{padding:8px 10px}
-.nt-sum tr.g td{background:#ececec}
-.nt-text{margin-top:22px;font-size:11px;line-height:1.5}
-.nt-text+.nt-text{margin-top:14px}
-.nt-greet{margin-top:16px;font-size:11px}
+.nt-sum{border-top:1px solid #dedede}
+.nt-sum td{padding:3px 4px;line-height:1.55}
+.nt-sum tr.g td{background:#ebebeb}
+.nt-text{margin-top:28px;font-size:12.4px;line-height:1.5;padding-left:5px}
+.nt-text+.nt-text{margin-top:10px}
+.nt-greet{margin-top:36px;font-size:12.4px;padding-left:5px;line-height:1.25}
 .nt-greet b{display:block;font-weight:700}
-.nt-greet .b2{color:#29aae1}
-.lay-neutral .haft{margin-bottom:12px}
-.nt-foot{display:grid;grid-template-columns:repeat(4,auto);justify-content:space-between;gap:14px;border-top:1px solid #d5d9df;padding-top:9px;font-size:8.5px;line-height:1.55}
+.nt-greet .b2{color:#4a9cc9}
+.nt-page{text-align:right;font-size:9.3px;margin-right:-6px}
+.nt-foot{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-left:-3px;padding-top:24px;font-size:9.3px;line-height:1.5}
 .nt-foot p{margin:0;white-space:nowrap}
-.nt-foot i{font-style:normal;font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:#6b7079;margin-right:6px}
 /* Minimal / Stripe */
 .paper.lay-minimal{padding:64px 80px 40px}
 .lay-minimal .mn-top{display:flex;justify-content:space-between;align-items:center;gap:20px}

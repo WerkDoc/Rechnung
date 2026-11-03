@@ -5,6 +5,7 @@
  * wird zusätzlich der Konto-Speicher genutzt.
  */
 import BRAND_LOGO from "../assets/brandLogo.js";
+import { zeichneRechnung, fussSpalten } from "./rechnungPdf.js";
 
 /* Datei speichern: im Claude-Artifact über dessen Download-Funktion,
    sonst Teilen-Menü (iPhone/Android, z. B. WhatsApp, Mail, Dateien) oder normaler Download. */
@@ -114,7 +115,7 @@ export function startApp(){
     block:{l:"Header-Block", d:"Farbiger Kopf mit Logo und Titel"},
     side:{l:"Zweispaltig", d:"Firmen- und Bankdaten in der Seitenleiste"},
     werkstatt:{l:"Werkstatt", d:"Gerätefeld, Arbeitslohn und Teile getrennt"},
-    neutral:{l:"Neutral", d:"Logo mittig, Stammdaten rechts, Zebra-Tabelle"}
+    neutral:{l:"Neutral", d:"Logo mittig, Stammdaten rechts – wie die Website-Rechnungen"}
   };
   const TEXT_SUGGEST = {
     textRechnung:"Auf verbaute Ersatzteile gewähren wir zusätzlich 6 Monate Garantie. Ihre gesetzlichen Gewährleistungsrechte bleiben davon unberührt. Ausgenommen von der Garantie sind Schäden durch Sturz, Feuchtigkeit oder Eingriffe Dritter.",
@@ -1208,26 +1209,26 @@ export function startApp(){
     const body=(withSub=true)=>`${withSub?sub:""}${intro}${table}${sum}${note}${greet}<div class="spacer"></div>${haft}`;
     const devbox = (D.devItems.length||D.problem) ? `<div class="devbox"><div class="dv-grid">${D.devItems.map(([a,b])=>`<div><label>${a}</label><b>${e(b)}</b></div>`).join("")}</div>${D.problem?`<div class="dv-prob"><label>Fehlerbeschreibung</label>${e(D.problem)}</div>`:""}</div>` : "";
 
-    if(lay==="neutral"){ const N=neutralData(r,D);
-      const prow=(p,i)=>`<tr><td><div class="dd"><span class="n">${i+1}.</span><span class="d">${e(p.bez)}</span></div></td><td class="r">${qtyTxt(p.menge)} ${e(p.einheit||"Stk.")}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
-      const srow=(a,b,cls="")=>`<tr class="${cls}"><td colspan="3">${a}</td><td class="r">${b}</td></tr>`;
-      const tax = c.p ? srow(`zzgl. Umsatzsteuer ${numIn(c.p)} %`, eurTxt(c.mwst)) : srow(dKu(r)?"Umsatzsteuer nicht erhoben gemäß § 19 UStG.":"Umsatzsteuer 0 %", "");
-      const cols=[[["",f.name],["",f.strasse],["",[f.plz,f.ort].filter(Boolean).join(" ")]],[["Tel",f.tel],["Mail",f.mail]],[["Bank",f.bank],["IBAN",f.iban],["BIC",f.bic]],[["St.-Nr.",f.stnr],["USt-ID",f.ustid]]]
-        .map(cl=>cl.filter(x=>x[1])).filter(cl=>cl.length);
+    if(lay==="neutral"){ const B=neutralDaten(r,D), s=B.summen, N=neutralData(r,D);   // gleicher Aufbau wie rechnungPdf.js
+      const z2=n=>new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2}).format(+n||0), ein=u=>String(u||"Stk.").replace(/^(Stk|Std)\.$/,"$1");
+      const prow=(p,i)=>`<tr><td>${i+1}.</td><td><b>${e(p.bez)}</b>${p.text?`<br>${e(p.text)}`:""}</td><td class="r">${z2(p.menge)} ${e(ein(p.einheit))}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
+      const srow=(a,b,cls="")=>`<tr class="${cls}"><td></td><td colspan="3">${a}</td><td class="r">${b}</td></tr>`;
+      const tax = s.mwst ? srow(`zzgl. Umsatzsteuer ${numIn(s.mwstSatz)} %`, eurTxt(s.mwst)) : srow(s.ku?"Umsatzsteuer nicht erhoben gemäß §19UStG.":"Umsatzsteuer 0 %", "");
+      const meta=list=>list.filter(m=>m&&m[1]).map(([a,b])=>`<span>${e(a)}</span><span class="r">${e(b)}</span>`).join("");
+      const m2=meta(B.meta2);
       return `<div class="paper lay-neutral">${stamp}
         <div class="nt-logo">${logo}</div>
-        <div class="nt-head"><div><div class="nt-sender">${N.senderParts.map(e).join(' <i>→</i> ')}</div><div class="addr">${br(D.addr)}</div></div>
-          <div class="nt-meta">${N.meta.map(([a,b])=>`<span>${e(a)}</span><b>${e(b)}</b>`).join("")}</div></div>
-        <div class="nt-title"><b>${e(T.l)} Nr. ${nrHtml}</b><span>${deDate(r.datum)}</span></div>
-        <div class="nt-sub">${e(N.leist)}${r.geraet?`<br>Gerät: ${e(r.geraet)}${r.imei?` · IMEI/SN ${e(r.imei)}`:""}`:""}</div>
-        <table class="nt-tbl"><thead><tr><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
-          <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
-          <tbody class="nt-sum">${c.rab?srow("Summe Positionen",eurTxt(c.sum))+srow(`Rabatt (${numIn(r.rabatt)} %)`,"− "+eurTxt(c.rab)):""}${srow("Gesamtbetrag netto",eurTxt(c.netto),"g")}${tax}${srow("Gesamtbetrag brutto",`<b>${eurTxt(c.brutto)}</b>`,"g")}</tbody></table>
-        ${noteBody(X,r)?`<div class="nt-text">${noteBody(X,r)}</div>`:""}
-        <div class="nt-text">${e(N.thanks)}</div>
+        <div class="nt-head"><div><div class="nt-sender">${e([f.name,f.strasse,[f.plz,f.ort].filter(Boolean).join(" ")].filter(Boolean).join("  -  "))}</div><div class="addr">${br(B.empfaenger)}</div></div>
+          <div class="nt-meta"><div class="nt-nr"><span>${e(B.nrLabel)}</span><span class="r">${nrHtml}</span></div><div class="nt-mg">${meta(B.meta1)}</div>${m2?`<div class="nt-mg">${m2}</div>`:""}</div></div>
+        <div class="nt-title"><b>${e(T.l)} Nr. ${nrHtml}</b></div>
+        <div class="nt-sub">${B.unterzeile.filter(Boolean).map(e).join("<br>")}</div>
+        <table class="nt-tbl"><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
+          <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td></td><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
+          <tbody class="nt-sum">${s.rabatt?srow("Summe Positionen",eurTxt(s.summe))+srow(`Rabatt (${numIn(s.rabattSatz)} %)`,"− "+eurTxt(s.rabatt)):""}${srow("Gesamtbetrag netto",eurTxt(s.netto),"g")}${tax}${srow("<b>Gesamtbetrag brutto</b>",`<b>${eurTxt(s.brutto)}</b>`,"g")}</tbody></table>
+        ${B.texte.filter(Boolean).map(t=>`<div class="nt-text">${e(t).replace(/\n/g,"<br>")}</div>`).join("")}
         <div class="nt-greet">Mit freundlichen Grüßen<b>${N.nm?`<span>${e(N.nm[1])}</span><span class="b2">${e(N.nm[2])}</span>`:e(f.name||"")}</b></div>
-        <div class="spacer"></div>${haft}
-        <div class="nt-foot">${cols.map(cl=>`<div>${cl.map(([a,b])=>`<p>${a?`<i>${e(a)}</i>`:""}<b>${e(b)}</b></p>`).join("")}</div>`).join("")}</div></div>`; }
+        <div class="spacer"></div><div class="nt-page">1/1</div>
+        <div class="nt-foot">${fussSpalten(B.firma).map(cl=>`<div>${cl.map(z=>`<p>${e(z)}</p>`).join("")}</div>`).join("")}</div></div>`; }
     if(lay==="minimal") return `<div class="paper lay-minimal">${stamp}
       <div class="mn-top">${logo}<span class="mn-from">${e(D.sender)}</span></div>
       <div class="mn-hero"><div><div class="mn-kicker">${T.l} · ${nrHtml}</div><div class="mn-amount">${eur(c.brutto)}</div><div class="mn-due">${e(D.due)}</div></div>${meta}</div>
@@ -1265,9 +1266,24 @@ export function startApp(){
       if(r.nr && r.id){ const cur=S.rechnungen.find(x=>x.id===r.id); if(cur) save("rechnungen",{...cur, verlauf:[...(cur.verlauf||[]),{t:nowStamp(),e:"PDF gespeichert"}]}); } }
     catch(e){ if(e && !["cancelled","declined","aborted"].includes(e.code)) toast("PDF konnte nicht gespeichert werden"); }
   }
+  // Daten für das gemeinsame Layout „Neutral“ (rechnungPdf.js – dieselbe Datei nutzt die Website)
+  function neutralDaten(r, D){
+    const {f,c,t,T,X,k}=D, N=neutralData(r,D), byL=l=>N.meta.find(m=>m[0]===l);
+    const addr=[...D.addr]; if(addr.length && !k.land) addr.push("Deutschland");
+    const unter=[N.leist, r.geraet?`Gerät: ${r.geraet}${r.imei?"  ·  IMEI/SN "+r.imei:""}`:""];
+    return { logo:docLogo(), firma:{...f, land:f.land||"Deutschland"}, empfaenger:addr, titel:T.l, nrLabel:`${T.l}s-Nr.`, nr:shownNr(r),
+      meta1:[byL(t==="rechnung"?"Rechnungsdatum":"Datum"), byL("Lieferdatum"), byL("Gültig bis")],
+      meta2:[r.websiteAuftrag?["Auftrag", r.websiteAuftrag]:null, byL("Ihre Kundennummer"), byL("Ihr Ansprechpartner")],
+      unterzeile:unter, positionen:r.positionen,
+      summen:{ netto:c.netto, brutto:c.brutto, mwst:c.mwst, mwstSatz:c.p, rabatt:c.rab, rabattSatz:r.rabatt, summe:c.sum, ku:dKu(r) },
+      texte:[X.pay, r.notiz, N.thanks, f.haftung], gruss:f.name };
+  }
   function buildPdfDoc(r){
     const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"mm",format:"a4"});
     const D=docParts(r), {f,c,t,T,X,job}=D, lay=pdfLayout();
+    if(lay==="neutral"){ zeichneRechnung(doc, neutralDaten(r,D));
+      if(X.stamp){ try{ doc.setPage(1); doc.saveGraphicsState(); doc.setGState(new doc.GState({opacity:.28})); doc.setTextColor(29,125,69); doc.setFont("helvetica","bold"); doc.setFontSize(46); doc.text("BEZAHLT",118,132,{angle:14}); doc.setFontSize(13); if(r.bezahltAm) doc.text(`am ${deDate(r.bezahltAm)}`,132,136,{angle:14}); doc.restoreGraphicsState(); }catch(e){} }
+      return doc; }
     const NAVY=[12,35,64], GREY=[93,102,115], INK=[21,27,36], LINE=[222,226,231], TINT=[238,243,248], WHITE=[255,255,255];
     const ACC=hexRgb((ACCENTS[f.akzent]||ACCENTS.repair).c), ACCT=ACC.map(v=>Math.round(255-(255-v)*.12));
     const txt=(s,x,yy,o)=>doc.text(Array.isArray(s)?s:String(s??""),x,yy,o);
@@ -1418,53 +1434,14 @@ export function startApp(){
       y=70; fnt("bold",16); col(NAVY); txt(T.up,L,y); fnt("normal",11); col(ACC); txt(nrTxt,L,y+6.5); y+=15;
       deviceLine();
     }
-    if(lay==="neutral"){
-      const N=neutralData(r,D), BLUE=[41,170,225], FS2=8.3;
-      try{ const src=docLogo(), p=doc.getImageProperties(src), ra=p.width/p.height; let w=78,h=w/ra; if(h>24){h=24;w=h*ra;} doc.addImage(src, src.startsWith("data:image/png")?"PNG":"JPEG", (210-w)/2, 13, w, h); }
-      catch(e){ fnt("bold",18); col(NAVY); txt(f.name||"",105,24,{align:"center"}); }
-      // sender line with arrows
-      let x=L; const ys=57; fnt("bold",6.3); col(INK);
-      N.senderParts.forEach((pt,i)=>{ txt(pt,x,ys); x+=doc.getTextWidth(pt)+1.8;
-        if(i<N.senderParts.length-1){ doc.setDrawColor(...INK); doc.setLineWidth(.2); doc.line(x,ys-.8,x+2.6,ys-.8); doc.line(x+1.8,ys-1.5,x+2.6,ys-.8); doc.line(x+1.8,ys-.1,x+2.6,ys-.8); x+=4.4; } });
-      lines(D.addr,L,63.5,9,INK);
-      N.meta.forEach(([a,b],i)=>{ const yy=57.5+i*4.5; fnt("normal",5.9); col([74,79,87]); txt(a.toUpperCase(),120,yy,{charSpace:.35}); fnt("bold",7.2); col(INK); txt(b,155,yy); });
-      y=100; fnt("bold",13); col(INK); txt(`${T.l} Nr. ${nrTxt}`,L,y); fnt("normal",8.5); txt(deDate(r.datum),R-2,y,{align:"right"});
-      y+=8; fnt("normal",FS2); txt(N.leist,L,y); y+=4.2;
-      if(r.geraet){ txt(`Gerät: ${r.geraet}${r.imei?"  ·  IMEI/SN "+r.imei:""}`,L,y); y+=4.2; }
-      y+=2.5;
-      const cM=128, cE=158, cG=R-2, dw=(cM-24)-(L+10);
-      const nhead=()=>{ doc.setFillColor(228,228,228); doc.rect(L,y,R-L,7.5,"F"); fnt("bold",FS2); col(INK); txt("Beschreibung",L+2.5,y+5); txt("Menge",cM,y+5,{align:"right"}); txt("Einzelpreis",cE,y+5,{align:"right"}); txt("Gesamtpreis",cG,y+5,{align:"right"}); y+=7.5; };
-      nhead();
-      r.positionen.forEach((p,i)=>{ fnt("normal",FS2); const ls=doc.splitTextToSize(p.bez||"",dw); const h=ls.length*3.7+4.6;
-        if(y+h>bottom){ doc.addPage(); pageDeco(false); y=20; nhead(); }
-        if(i%2===1){ doc.setFillColor(241,241,241); doc.rect(L,y,R-L,h,"F"); }
-        col(INK); txt(`${i+1}.`,L+2.5,y+4.6); txt(ls,L+10,y+4.6); txt(`${qtyTxt(p.menge)} ${p.einheit||"Stk."}`,cM,y+4.6,{align:"right"}); txt(eurTxt(p.preis),cE,y+4.6,{align:"right"}); txt(eurTxt(p.menge*p.preis),cG,y+4.6,{align:"right"}); y+=h; });
-      const trow=(a,b,fill,bold)=>{ if(y+7.5>bottom){ doc.addPage(); pageDeco(false); y=20; } if(fill){ doc.setFillColor(236,236,236); doc.rect(L,y,R-L,7,"F"); } fnt("normal",FS2); col(INK); txt(a,L+2.5,y+4.7); if(b){ fnt(bold?"bold":"normal",FS2); txt(b,cG,y+4.7,{align:"right"}); } y+=7; };
-      if(c.rab){ trow("Summe Positionen",eurTxt(c.sum),false); trow(`Rabatt (${numIn(r.rabatt)} %)`,"− "+eurTxt(c.rab),false); }
-      trow("Gesamtbetrag netto",eurTxt(c.netto),true);
-      if(c.p) trow(`zzgl. Umsatzsteuer ${numIn(c.p)} %`,eurTxt(c.mwst),false); else trow(dKu(r)?"Umsatzsteuer nicht erhoben gemäß § 19 UStG.":"Umsatzsteuer 0 %","",false);
-      trow("Gesamtbetrag brutto",eurTxt(c.brutto),true,true);
-      y+=9; fnt("normal",FS2); col(INK);
-      [X.pay, r.notiz, N.thanks].filter(Boolean).forEach(pp=>{ const ls=doc.splitTextToSize(pp,R-L); if(y+ls.length*3.8>bottom){ doc.addPage(); pageDeco(false); y=20; } txt(ls,L,y); y+=ls.length*3.8+3; });
-      y+=1.5; if(y+8>bottom){ doc.addPage(); pageDeco(false); y=20; } txt("Mit freundlichen Grüßen",L,y); y+=3.9; fnt("bold",FS2);
-      if(N.nm){ col(INK); txt(N.nm[1],L,y); col(BLUE); txt(N.nm[2],L+doc.getTextWidth(N.nm[1]),y); } else { col(INK); txt(f.name||"",L,y); }
-      col(INK);
-    } else { intro(); positions(); y+=2; totals(); notesGreet(); }
+    intro(); positions(); y+=2; totals(); notesGreet();
 
     // ---- every page: stamp, liability note, footer
     const pages=doc.getNumberOfPages();
     for(let pg=1; pg<=pages; pg++){ doc.setPage(pg); const fy=CFG.foot;
       if(X.stamp && pg===1){ try{ doc.saveGraphicsState(); doc.setGState(new doc.GState({opacity:.28})); doc.setTextColor(29,125,69); fnt("bold",46); txt("BEZAHLT",lay==="side"?122:118,CFG.stampY,{angle:14}); fnt("bold",13); if(r.bezahltAm) txt(`am ${deDate(r.bezahltAm)}`,lay==="side"?136:132,CFG.stampY+4,{angle:14}); doc.restoreGraphicsState(); }catch(e){} }
       if(haftLines.length){ fnt("normal",7); col(GREY); txt(haftLines,L,(lay==="side"?fy-2:fy-7)-(haftLines.length-1)*3.2); }
-      if(lay==="neutral"){
-        doc.setDrawColor(213,217,223); doc.setLineWidth(.2); doc.line(L,fy-4,R,fy-4);
-        const cols=[[["",f.name],["",f.strasse],["",[f.plz,f.ort].filter(Boolean).join(" ")]],[["TEL",f.tel],["MAIL",f.mail]],[["BANK",f.bank],["IBAN",f.iban],["BIC",f.bic]],[["ST.-NR.",f.stnr],["UST-ID",f.ustid]]]
-          .map(cl=>cl.filter(x=>x[1])).filter(cl=>cl.length);
-        const xs=[L, L+40, L+80, L+134];
-        cols.forEach((cl,ci)=>cl.forEach(([a,b],i)=>{ const yy=fy+i*3.4; let x=xs[ci]||xs[3];
-          if(a){ fnt("normal",5.4); col([107,112,121]); txt(a,x,yy,{charSpace:.3}); x+= ci===3?11:9; }
-          fnt("bold",6.6); col(INK); txt(b,x,yy); }));
-      } else if(lay!=="side"){
+      if(lay!=="side"){
         doc.setDrawColor(...(lay==="minimal"?LINE:GREY)); doc.setLineWidth(.2); doc.line(L,fy-4,R,fy-4); fnt("normal",7.3); col(GREY);
         const cw=(R-L)/3;
         [[f.name,...D.firm],bankLines,[f.tel&&"Tel. "+f.tel,...taxLines].filter(Boolean)].forEach((cl,ci)=>cl.filter(Boolean).forEach((s,i)=>txt(s,L+ci*cw,fy+i*3.4)));
