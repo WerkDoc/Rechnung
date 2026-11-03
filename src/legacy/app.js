@@ -199,25 +199,43 @@ export function startApp(){
   const NR_KEY = { job:"preJob", rechnung:"preRe", angebot:"preAn", kva:"preKv" };
   function nrPrefix(kind, f=S.firma){ const v=f[NR_KEY[kind]]; return (v==null || String(v).trim()==="") ? NR_DEF[kind] : String(v).trim(); }
   const nrWithYear = (f=S.firma) => f.nrJahr !== false;
-  // Stamm einer neuen Nummer, z. B. "RE-2026-" (mit Jahr) oder "RE-" (ohne Jahr). Aufträge immer ohne Jahr.
-  function nrStem(kind, f=S.firma, y=new Date().getFullYear()){ const p=nrPrefix(kind,f); return kind!=="job" && nrWithYear(f) ? `${p}${y}-` : p; }
-  // höchste vergebene laufende Nummer zu genau diesem Stamm (andere/alte Formate zählen nicht mit)
-  function nrMax(list, stem){ let m=0; for(const x of list){ const n=String(x.nr||""); if(!n.startsWith(stem)) continue; const rest=n.slice(stem.length); if(/^\d+$/.test(rest)) m=Math.max(m, parseInt(rest,10)); } return m; }
-  function readNrForm(){ const t=id=>($("#"+id)?.value||"").replace(/\s+/g,"").toUpperCase(); return { preJob:t("cPreJob"), preRe:t("cPreRe"), preAn:t("cPreAn"), preKv:t("cPreKv"), nrJahr:$("#cNrJahr")?.checked!==false }; }
+  // Belegnummer, z. B. "RE-001/2026" (mit Jahr) oder "RE-001" (ohne Jahr). Aufträge immer ohne Jahr: "JOB-0001".
+  const nrSuffix = (kind, f=S.firma, y=new Date().getFullYear()) => kind!=="job" && nrWithYear(f) ? `/${y}` : "";
+  function fmtNr(kind, n, f=S.firma, y=new Date().getFullYear()){ return nrPrefix(kind,f) + (kind==="job" ? pad4(n) : String(n).padStart(3,"0")) + nrSuffix(kind,f,y); }
+  // höchste vergebene laufende Nummer in genau diesem Format (andere/alte Formate zählen nicht mit)
+  function nrMax(list, kind, f=S.firma, y=new Date().getFullYear()){ const p=nrPrefix(kind,f), s=nrSuffix(kind,f,y); let m=0;
+    for(const x of list){ const n=String(x.nr||""); if(!n.startsWith(p) || !n.endsWith(s) || n.length<=p.length+s.length) continue; const rest=n.slice(p.length, n.length-s.length); if(/^\d+$/.test(rest)) m=Math.max(m, parseInt(rest,10)); } return m; }
+  function readNrForm(){ const t=id=>($("#"+id)?.value||"").replace(/\s+/g,"").toUpperCase(), o={ preJob:t("cPreJob"), preRe:t("cPreRe"), preAn:t("cPreAn"), preKv:t("cPreKv"), nrJahr:$("#cNrJahr")?.checked!==false };
+    const st=parseInt(t("cReStart"),10); if($("#cReStart")) Object.assign(o, st>1 ? { reStart:st, reStartYear:new Date().getFullYear() } : { reStart:0, reStartYear:0 }); return o; }
   // laufende Nummer = höchste bisher vergebene (egal mit welchem Kürzel) + 1; mit Jahreszahl nur Belege aus diesem Jahr
   function runNo(list, y){ return Math.max(0, ...list.map(x=>seqNo(x.nr, y))); }
-  function freeNr(stem, n, list){ const taken=new Set(list.map(x=>String(x.nr||""))); let nr; do{ nr=stem+pad4(n++); }while(taken.has(nr)); return nr; }
-  const nextJobNrFor = f => freeNr(nrStem("job",f), 1+Math.max(runNo(S.auftraege,-1), nrMax(S.auftraege, nrStem("job",f))), S.auftraege);
+  function freeNr(kind, n, list, f=S.firma, y=new Date().getFullYear()){ const taken=new Set(list.map(x=>String(x.nr||""))); let nr; do{ nr=fmtNr(kind,n++,f,y); }while(taken.has(nr)); return nr; }
+  const nextJobNrFor = f => freeNr("job", 1+Math.max(runNo(S.auftraege,-1), nrMax(S.auftraege,"job",f)), S.auftraege, f);
   const nextJobNr = () => nextJobNrFor(S.firma);
   const dTyp = r => r.typ || "rechnung";
+  // Erstellte Rechnungen (mit Nummer) sind gesperrt: nicht löschen, nicht ändern – korrigiert wird nur per Storno
+  const docLocked = r => dTyp(r)==="rechnung" && !!r.nr;
   const dKu = r => r.ku ?? r.kleinunternehmer ?? (r.mwst===0 && !!S.firma.kleinunternehmer);
   const dMwst = r => dKu(r) ? 0 : (r.mwst ?? 19);
   const dBrutto = r => r.brutto ?? true;
-  function nextNr(typ, f=S.firma){ const y=new Date().getFullYear(); const stem=nrStem(typ,f,y);
+  // laufende Nummer, die als Nächstes dran ist (nur aus den Daten auf diesem Gerät)
+  function nextSeq(typ, f=S.firma, y=new Date().getFullYear()){
     const all=S.rechnungen.filter(r=>dTyp(r)===typ && r.nr), scope = nrWithYear(f) ? all.filter(r=>(r.datum||"").startsWith(String(y))) : all;
-    const used=Math.max(runNo(scope, y), nrMax(all, stem));
-    const start = typ==="rechnung" && +f.reStartYear===y ? (+f.reStart||1)-1 : 0; return freeNr(stem, 1+Math.max(used,start), all); }
-  const shownNr = r => r.nr || `${nrStem(dTyp(r))}····`;
+    const used=Math.max(runNo(scope, y), nrMax(all, typ, f, y));
+    const start = typ==="rechnung" && +f.reStartYear===y ? (+f.reStart||1)-1 : 0; return 1+Math.max(used,start); }
+  function nextNr(typ, f=S.firma){ const y=new Date().getFullYear(); return freeNr(typ, nextSeq(typ,f,y), S.rechnungen.filter(r=>dTyp(r)===typ && r.nr), f, y); }
+  const shownNr = r => r.nr || `${nrPrefix(dTyp(r))}···${nrSuffix(dTyp(r))}`;
+  // Belegnummer über den gemeinsamen Zähler in der Cloud vergeben – Laden und Website zählen dieselbe Reihe.
+  // Ohne Cloud-Konto zählt nur dieses Gerät. Mit Cloud-Konto, aber ohne Netz: Fehler → Beleg bleibt Entwurf.
+  async function reserveNr(typ){
+    const f=S.firma, y=new Date().getFullYear(), list=S.rechnungen.filter(r=>dTyp(r)===typ && r.nr);
+    if(!cloudOn()) return nextNr(typ);
+    if(navigator.onLine===false) throw new Error("offline");
+    const c=await sbClient();
+    const { data, error }=await withTimeout(c.rpc("wb_naechste_nr", { p_kind:typ, p_jahr:nrWithYear(f)?y:0, p_min:nextSeq(typ,f,y) }), 15000, "offline");
+    if(error){ if(error.code==="PGRST202"){ console.warn("wb_naechste_nr fehlt – Nummer nur lokal vergeben"); return nextNr(typ); } throw error; }
+    return freeNr(typ, +data, list, f, y);
+  }
   /* Steuer-Modus: A = Kleinunternehmer, B = Regelbesteuerung Brutto-Eingabe, C = Regelbesteuerung Netto-Eingabe */
   const TAXM = {
     ku:{k:"A", t:"Kleinunternehmer (§ 19 UStG)", s:"Keine Umsatzsteuer – der eingegebene Preis ist der Endpreis."},
@@ -685,7 +703,10 @@ export function startApp(){
       if(a==="selAll" && UI.sel){ const vis=UI.selVis[UI.sel.kind].map(x=>x.id); const all=vis.length && vis.every(id=>UI.sel.ids.has(id)); UI.sel.ids = all ? new Set() : new Set(vis); UI.sel.confirm=false; render(); return; }
       if(a==="selDel" && UI.sel?.ids.size){ UI.sel.confirm=true; render(); return; }
       if(a==="selNo" && UI.sel){ UI.sel.confirm=false; render(); return; }
-      if(a==="selYes" && UI.sel){ const {kind, ids}=UI.sel; const n=ids.size; UI.sel=null; removeMany(kind,[...ids]); toast(`${n} ${selWord(kind,n)} gelöscht`); return; }
+      if(a==="selYes" && UI.sel){ const {kind}=UI.sel; let ids=[...UI.sel.ids]; UI.sel=null;
+        const kept = kind==="rechnungen" ? ids.filter(id=>{ const r=S.rechnungen.find(x=>x.id===id); return r && docLocked(r); }) : [];
+        ids=ids.filter(id=>!kept.includes(id)); if(ids.length) removeMany(kind,ids); else render();
+        toast(`${ids.length} ${selWord(kind,ids.length)} gelöscht${kept.length?` · ${kept.length} erstellte Rechnung${kept.length===1?"":"en"} bleib${kept.length===1?"t":"en"} erhalten`:""}`); return; }
       if(a==="selStorno" && UI.sel){ const ids=UI.sel.ids; UI.sel=null; const list=S.rechnungen.filter(r=>ids.has(r.id) && dTyp(r)==="rechnung" && r.nr && !["entwurf","storniert"].includes(dStatus(r)));
         const upd=list.map(r=>({...r, status:"storniert", verlauf:[...(r.verlauf||[]), {t:nowStamp(), e:"Status: Storniert"}]})); delete upd.bezahlt;
         upd.forEach(o=>upsertLocal("rechnungen",o)); lsSave(); render();
@@ -1017,14 +1038,18 @@ export function startApp(){
       renderEditor(d,isEdit); });
     $("#eKunde").onchange=()=>{ collectEditor(d); keepK(); renderEditor(d,isEdit); };
     $("#eAuftrag").onchange=()=>{ collectEditor(d); keepK(); const a=S.auftraege.find(x=>x.id===d.auftragId); if(a){ d.kundeId=a.kundeId||d.kundeId; d.geraet=a.geraet; d.imei=a.imei||""; d.leistung=a.erledigt||d.leistung; if(!d.positionen.length) d.positionen=(a.positionen||[]).map(p=>({einheit:"Stk.",...p})); } renderEditor(d,isEdit); };
-    const finish=(make)=>{
+    const finish=async(make)=>{
       collectEditor(d);
       if(d._kErr){ toast(d._kErr); return; }
       if(make){ if(!d.kundeId){ toast("Bitte einen Kunden wählen"); $("#eKunde").focus(); return; } if(!d.positionen.length){ toast("Bitte mindestens eine Position eintragen"); return; } }
+      let nr="";
+      if(make){ const b=$("#eMake"); if(b) b.disabled=true;
+        try{ nr=await reserveNr(d.typ); }
+        catch(e){ if(b) b.disabled=false; make=false; toast(navigator.onLine===false || /offline/.test(e?.message||"") ? "Keine Internetverbindung – die Nummer wird online vergeben. Als Entwurf gespeichert." : "Nummer konnte nicht vergeben werden – als Entwurf gespeichert. Bitte später erneut erstellen."); } }
       if(d._kundeNeu) save("kunden", d._kundeNeu);
       const out={...d}; delete out._kundeNeu; delete out._kErr; delete out.bezahlt; delete out.kleinunternehmer;
       if(make){
-        out.nr=nextNr(out.typ); out.status="offen"; out.verlauf=[...(out.verlauf||[]), {t:nowStamp(), e:"Erstellt"}];
+        out.nr=nr; out.status="offen"; out.verlauf=[...(out.verlauf||[]), {t:nowStamp(), e:"Erstellt"}];
         if(out.typ==="rechnung") for(const p of out.positionen) if(p.teilId){ const t=S.teile.find(x=>x.id===p.teilId); if(t && t.kategorie!=="Dienstleistung") save("teile",{...t,bestand:Math.max(0,(+t.bestand||0)-(+p.menge||0))}); }
         if(out.ausDoc){ const src=S.rechnungen.find(x=>x.id===out.ausDoc); if(src && dStatus(src)!=="akzeptiert") save("rechnungen",{...src,status:"akzeptiert",verlauf:[...(src.verlauf||[]),{t:nowStamp(),e:`In Rechnung ${out.nr} übernommen`}]}); }
       } else if(!out.verlauf.length) out.verlauf=[{t:nowStamp(), e:"Entwurf angelegt"}];
@@ -1076,7 +1101,8 @@ export function startApp(){
         <div class="btnrow"><button class="btn soft" id="dPdf">${ico.share} PDF speichern / teilen</button></div>
         <div id="dThumb" style="margin-top:6px">${paperBox(r)}</div>
         <span style="color:var(--muted)">Zum Vergrößern auf das Blatt tippen.</span></div>
-      <button class="btn danger" id="dDel">${st==="entwurf"?"Entwurf löschen":"Löschen"}</button><div id="delConfirm"></div>
+      ${docLocked(r) ? `<div class="hint"><span><b>Erstellte Rechnungen lassen sich nicht löschen.</b> Zum Korrigieren den Status „Storniert“ setzen und eine neue Rechnung erstellen – die stornierte bleibt zur Nachweisführung erhalten (10 Jahre).</span></div>`
+        : `<button class="btn danger" id="dDel">${st==="entwurf"?"Entwurf löschen":"Löschen"}</button>`}<div id="delConfirm"></div>
     `, null, "", { cancelLabel:"Zurück", foot: st==="entwurf"
         ? `<button class="btn accent wide" id="dMake">${T.make}</button>`
         : `<button class="btn ghost wide" id="dStatus">${ico.sync} Status ändern</button>` });
@@ -1097,7 +1123,7 @@ export function startApp(){
       const subs = {offen:"Erstellt, noch nicht verschickt", versendet:"An den Kunden geschickt", bezahlt:"Geld ist eingegangen (heute)", storniert:"Rechnung ungültig, bleibt zur Nachweisführung erhalten", akzeptiert:"Kunde hat zugesagt", abgelehnt:"Kunde hat abgesagt"};
       openPicker("Status ändern", opts.filter(s=>s!==(r.status||"offen")).map(s=>({label:DST[s], sub:subs[s], pill:s, value:s})), o=>setDocStatus(r,o.value));
     };
-    $("#dDel").onclick=()=>confirmBox(st==="entwurf"?"Diesen Entwurf löschen?":`${T.l} ${esc(r.nr)} wirklich löschen? Bei verschickten Rechnungen besser den Status „Storniert“ setzen.`, ()=>{ remove("rechnungen",r.id); closeSheet(); toast("Gelöscht"); });
+    const dl=$("#dDel"); if(dl) dl.onclick=()=>confirmBox(st==="entwurf"?"Diesen Entwurf löschen?":`${T.l} ${esc(r.nr)} wirklich löschen?`, ()=>{ remove("rechnungen",r.id); closeSheet(); toast("Gelöscht"); });
   }
   function setDocStatus(r, s){
     const o={...r, status:s, verlauf:[...(r.verlauf||[]), {t:nowStamp(), e:`Status: ${DST[s]}`}]};
@@ -1224,7 +1250,7 @@ export function startApp(){
   function sampleDoc(){
     const real=[...S.rechnungen].filter(r=>dTyp(r)==="rechnung"&&r.nr).sort((a,b)=>(b.datum||"").localeCompare(a.datum||""))[0];
     if(real) return {...real, status:S.firma.stempel?"bezahlt":real.status, bezahltAm:real.bezahltAm||today()};
-    return { typ:"rechnung", nr:`RE-${new Date().getFullYear()}-0001`, status:S.firma.stempel?"bezahlt":"offen", bezahltAm:today(), _kundeNeu:{name:"Max Mustermann (Beispiel)", strasse:"Hauptstraße 5", plz:"12345", ort:"Musterstadt"},
+    return { typ:"rechnung", nr:fmtNr("rechnung",1), status:S.firma.stempel?"bezahlt":"offen", bezahltAm:today(), _kundeNeu:{name:"Max Mustermann (Beispiel)", strasse:"Hauptstraße 5", plz:"12345", ort:"Musterstadt"},
       geraet:"iPhone X – Ladebuchse", imei:"35 291611 482736 4", datum:today(), leistung:today(), faellig:addDays(today(),+(S.firma.ziel??14)), mwst:S.firma.kleinunternehmer?0:19, brutto:!S.firma.netto, rabatt:0, notiz:defaultNote("rechnung"),
       positionen:[{bez:"Ladebuchse iPhone X",menge:1,einheit:"Stk.",preis:29},{bez:"Arbeitszeit / Reparatur",menge:1,einheit:"psch.",preis:S.firma.pauschale??39}] };
   }
@@ -1543,8 +1569,9 @@ export function startApp(){
         <div class="field"><label for="cPreAn">Angebote</label><input id="cPreAn" class="mono" maxlength="12" autocapitalize="characters" placeholder="AN-" value="${esc(f.preAn??"")}"></div>
         <div class="field"><label for="cPreKv">Kostenvoranschläge</label><input id="cPreKv" class="mono" maxlength="12" autocapitalize="characters" placeholder="KV-" value="${esc(f.preKv??"")}"></div>
         <div class="field"><label for="cNrJahr">Jahreszahl in Belegnummer</label><input type="checkbox" class="toggle" id="cNrJahr" ${f.nrJahr!==false?"checked":""}></div>
+        <div class="field"><label for="cReStart">Rechnungen ${new Date().getFullYear()} starten bei</label><input id="cReStart" class="mono" inputmode="numeric" placeholder="1" value="${+f.reStartYear===new Date().getFullYear() && +f.reStart>1 ? esc(String(f.reStart)) : ""}"></div>
         <div class="kv" style="flex-direction:column;gap:6px"><span>Nächste Nummern</span><div id="nrPrev" class="mono"></div></div></div>
-        <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 0001.</p></div>
+        <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 001. „Starten bei“ gilt nur, solange noch keine höhere Nummer vergeben ist – z. B. 30, wenn die letzte Rechnung aus einem anderen Programm die 29 war.</p></div>
       <div class="group" id="grpKi"><span class="glabel">KI-Belegerkennung</span><div class="box">
         <div class="field"><label for="cKiProv">Belegerkennungs-Anbieter</label><select id="cKiProv">${Object.entries(KI_PROV).map(([k,p])=>`<option value="${k}" ${kiProv()===k?"selected":""}>${esc(p.l)}${k==="gemini"?" – eigener API-Key":k==="docai"?" – inklusive":""}</option>`).join("")}</select></div>
         <div data-kp="gemini">
@@ -1566,7 +1593,7 @@ export function startApp(){
     bindTaxMode("cTax", m=>{ $("#cKlein").checked = m==="ku"; $("#cNetto").checked = m==="netto"; });
     const nrUpd=()=>{ const f2={...S.firma, ...readNrForm()};
       $("#nrPrev").innerHTML=[["Auftrag",nextJobNrFor(f2)],["Rechnung",nextNr("rechnung",f2)],["Angebot",nextNr("angebot",f2)],["KVA",nextNr("kva",f2)]].map(([a,b])=>`<i>${a}</i><b>${esc(b)}</b>`).join(""); };
-    ["cPreJob","cPreRe","cPreAn","cPreKv"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
+    ["cPreJob","cPreRe","cPreAn","cPreKv","cReStart"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
     $("#cLogo").onchange=e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>prepareLogo(rd.result, out=>{ logo=out; $("#lPrev img").hidden=false; $("#lPrev img").src=logo; $("#lInfo").textContent="Neues Logo – zum Übernehmen „Speichern“ tippen"; }); rd.readAsDataURL(file); };
     $("#cGemEye").onclick=()=>{ const i=$("#cGemini"); i.type = i.type==="password" ? "text" : "password"; };
     bindKiForm();
@@ -1631,8 +1658,8 @@ export function startApp(){
       if(kind==="kunden"){ const jobs=S.auftraege.filter(a=>UI.sel.ids.has(a.kundeId)).length, docs=S.rechnungen.filter(r=>UI.sel.ids.has(r.kundeId)).length;
         if(jobs||docs) extra=` ${[jobs?`${jobs} Auftr${jobs===1?"ag":"äge"}`:"", docs?`${docs} Beleg${docs===1?"":"e"}`:""].filter(Boolean).join(" und ")} bleiben erhalten, aber ohne Kunde.`; }
       else if(kind==="teile") extra=" Bereits erstellte Rechnungen bleiben unverändert.";
-      else { const fin=S.rechnungen.filter(r=>UI.sel.ids.has(r.id) && dTyp(r)==="rechnung" && r.nr && !["entwurf","storniert"].includes(dStatus(r))).length;
-        if(fin) extra=` Darunter ${fin} erstellte Rechnung${fin===1?"":"en"} – diese besser stornieren statt löschen (Aufbewahrungspflicht 10 Jahre).`; }
+      else { const fin=S.rechnungen.filter(r=>UI.sel.ids.has(r.id) && docLocked(r)).length;
+        if(fin) extra=` Darunter ${fin} erstellte Rechnung${fin===1?"":"en"} – diese werden nicht gelöscht (Aufbewahrungspflicht 10 Jahre), sondern können nur storniert werden.`; }
       return `<div class="selbar warn" role="alertdialog"><span class="n">${n} ${word} endgültig löschen?<small>${extra.trim()}</small></span><div class="btnrow"><button class="btn ghost sm" data-act="selNo">Abbrechen</button>${kind==="rechnungen" && extra ? `<button class="btn sm" data-act="selStorno">Stornieren</button>` : ""}<button class="btn danger sm" data-act="selYes">Löschen</button></div></div>`;
     }
     return `<div class="selbar"><button class="btn ghost sm" data-act="selAll">${all?"Keine":"Alle"} auswählen</button><span class="n">${n} ausgewählt</span><button class="btn danger sm" data-act="selDel" ${n?"":"disabled style='opacity:.45'"}>Löschen</button></div>`;
@@ -3387,7 +3414,7 @@ export function startApp(){
     const neu=recs.filter(r=>!exists(r)), dup=recs.length-neu.length;
     const newKunden=new Set(neu.filter(r=>r.kunde && !findK(r)).map(r=>normH(r.kunde))).size;
     const y=new Date().getFullYear(), seqMax=Math.max(0,...neu.filter(r=>r.datum.startsWith(String(y))).map(r=>seqNo(r.nr,y)));
-    const ownMax=nrMax(S.rechnungen.filter(d=>dTyp(d)==="rechnung"), nrStem("rechnung"));
+    const ownMax=nrMax(S.rechnungen.filter(d=>dTyp(d)==="rechnung"), "rechnung");
     const suggest = seqMax ? Math.max(seqMax, ownMax)+1 : 0;
     const sum=neu.reduce((s,r)=>s+r.brutto,0);
     const chips=IMPORT_FIELDS.rechnungen.filter(([k])=>map[k]!=null).map(([k,l])=>`<span class="mapchip"><b>${esc(l)}</b><span>← ${esc(rows[hi][map[k]])}</span></span>`).join("");
@@ -3398,7 +3425,7 @@ export function startApp(){
       <div class="group"><span class="glabel">Vorschau${recs.length>8?` (erste 8 von ${recs.length})`:""}</span><div class="box imprev">${prev}</div></div>
       <div class="card" style="gap:8px">
         <span>${neu.length} neu${dup?`, ${dup} schon vorhanden (werden übersprungen)`:""}${newKunden?` · ${newKunden===1?"1 neuer Kunde wird":newKunden+" neue Kunden werden"} angelegt`:""}.</span>
-        ${suggest?`<div class="lineform" style="border-top:1px solid var(--line);padding-top:10px"><span><b style="font-weight:600">Nummern fortsetzen</b><br><small style="color:var(--muted)">Neue Rechnungen in der Werkbank starten mit ${esc(nrStem("rechnung"))}${pad4(suggest)}, damit sie an Ihre sevdesk-Nummern anschließen.</small></span><input type="checkbox" class="toggle" id="imSeq" checked></div>`:""}
+        ${suggest?`<div class="lineform" style="border-top:1px solid var(--line);padding-top:10px"><span><b style="font-weight:600">Nummern fortsetzen</b><br><small style="color:var(--muted)">Neue Rechnungen in der Werkbank starten mit ${esc(fmtNr("rechnung",suggest))}, damit sie an Ihre sevdesk-Nummern anschließen.</small></span><input type="checkbox" class="toggle" id="imSeq" checked></div>`:""}
         <p class="help" style="margin:0">Übernommen werden Nummer, Datum, Kunde, Betrag, Steuersatz und Status. Die einzelnen Positionen stehen nicht in der sevdesk-Liste – jede Rechnung bekommt eine Sammelposition. Die Original-PDFs aus sevdesk bleiben Ihre Belege.</p></div>
     `, null, "", { foot:`<button class="btn accent wide" id="imGo" ${neu.length?"":"disabled style='opacity:.5'"}>${ico.upl} ${neu.length} Rechnung${neu.length===1?"":"en"} importieren</button>` });
     $("#imGo").onclick=()=>{
