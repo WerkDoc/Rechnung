@@ -174,7 +174,7 @@ begin
       'name', firma->>'name', 'strasse', firma->>'strasse', 'plz', firma->>'plz', 'ort', firma->>'ort',
       'tel', firma->>'tel', 'mail', firma->>'mail', 'ansprechpartner', firma->>'ansprechpartner',
       'bank', firma->>'bank', 'iban', firma->>'iban', 'bic', firma->>'bic', 'stnr', firma->>'stnr', 'ustid', firma->>'ustid',
-      'inhaber', firma->>'inhaber', 'land', firma->>'land', 'logo', firma->>'logo')));
+      'inhaber', firma->>'inhaber', 'land', firma->>'land', 'haftung', firma->>'haftung', 'logo', firma->>'logo')));
 end $$;
 revoke all on function public.wb_website_rechnung(text, jsonb, jsonb) from public;
 grant execute on function public.wb_website_rechnung(text, jsonb, jsonb) to anon;
