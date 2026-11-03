@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# enthält echte Kundendaten
+rechnung-vorlage.pdf
