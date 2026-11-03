@@ -1266,6 +1266,8 @@ export function startApp(){
       if(r.nr && r.id){ const cur=S.rechnungen.find(x=>x.id===r.id); if(cur) save("rechnungen",{...cur, verlauf:[...(cur.verlauf||[]),{t:nowStamp(),e:"PDF gespeichert"}]}); } }
     catch(e){ if(e && !["cancelled","declined","aborted"].includes(e.code)) toast("PDF konnte nicht gespeichert werden"); }
   }
+  // Schrift Open Sans fürs PDF (wie die Vorlage) – wird im Hintergrund nachgeladen, bis dahin Helvetica
+  let PDF_SCHRIFT=null; import("../assets/openSans.js").then(m=>{ PDF_SCHRIFT=m.default; }).catch(()=>{});
   // Daten für das gemeinsame Layout „Neutral“ (rechnungPdf.js – dieselbe Datei nutzt die Website)
   function neutralDaten(r, D){
     const {f,c,t,T,X,k}=D, N=neutralData(r,D), byL=l=>N.meta.find(m=>m[0]===l);
@@ -1276,7 +1278,7 @@ export function startApp(){
       meta2:[r.websiteAuftrag?["Auftrag", r.websiteAuftrag]:null, byL("Ihre Kundennummer"), byL("Ihr Ansprechpartner")],
       unterzeile:unter, positionen:r.positionen,
       summen:{ netto:c.netto, brutto:c.brutto, mwst:c.mwst, mwstSatz:c.p, rabatt:c.rab, rabattSatz:r.rabatt, summe:c.sum, ku:dKu(r) },
-      texte:[X.pay, r.notiz, N.thanks, f.haftung], gruss:f.name };
+      texte:[X.pay, r.notiz, N.thanks, f.haftung], gruss:f.name, schrift:PDF_SCHRIFT };
   }
   function buildPdfDoc(r){
     const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"mm",format:"a4"});

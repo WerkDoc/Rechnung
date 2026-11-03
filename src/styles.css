@@ -698,7 +698,9 @@ html.auth-open, html.auth-open body{overflow:hidden}
 .lay-kompakt .greet{margin-top:14px}
 
 /* Neutral – gleiche Maße wie rechnungPdf.js (1 mm = 3,78 px) */
-.paper.lay-neutral{padding:30px 60px 20px 79px;font-size:12.4px;color:#1a1a1a;line-height:1.45}
+@font-face{font-family:"Open Sans RM";src:url("./assets/fonts/OpenSans-Regular.ttf") format("truetype");font-weight:400;font-display:swap}
+@font-face{font-family:"Open Sans RM";src:url("./assets/fonts/OpenSans-Bold.ttf") format("truetype");font-weight:700;font-display:swap}
+.paper.lay-neutral{padding:30px 60px 20px 79px;font-size:12.4px;color:#1a1a1a;line-height:1.45;font-family:"Open Sans RM",Helvetica,Arial,sans-serif}
 .nt-logo{display:flex;justify-content:center}
 .lay-neutral .logo{max-height:87px;max-width:318px}
 .nt-head{display:flex;justify-content:space-between;gap:24px;margin-top:70px}
