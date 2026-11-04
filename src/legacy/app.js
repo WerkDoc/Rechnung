@@ -5,7 +5,7 @@
  * wird zusätzlich der Konto-Speicher genutzt.
  */
 import BRAND_LOGO from "../assets/brandLogo.js";
-import { zeichneRechnung, fussSpalten } from "./rechnungPdf.js";
+import { zeichneRechnung, fussSpalten, positionsTitel, positionsText, garantieHinweis, GARANTIE_STANDARD } from "./rechnungPdf.js";
 
 /* Datei speichern: im Claude-Artifact über dessen Download-Funktion,
    sonst Teilen-Menü (iPhone/Android, z. B. WhatsApp, Mail, Dateien) oder normaler Download. */
@@ -818,10 +818,12 @@ export function startApp(){
   $("#vClose").onclick=closeViewer; $("#vIn").onclick=()=>zoomViewer(1); $("#vOut").onclick=()=>zoomViewer(-1);
 
   /* ---------- position editor (shared) ---------- */
+  let POS_IMEI="";   // IMEI des Belegs im Editor (für die Zeile „Serien-/IMEI-Nr.“ bei neuen Ersatzteil-Positionen)
   function einhOpts(sel){ const s=sel||"Stk."; const list=EINH.some(e=>e[0]===s)?EINH:[...EINH,[s,s]]; return list.map(([k,l])=>`<option value="${esc(k)}" ${k===s?"selected":""}>${esc(l)} (${esc(k)})</option>`).join(""); }
   function posRow(p={}){
     return `<div class="pcard" ${p.teilId?`data-teil="${p.teilId}"`:""}>
       <div class="prow1"><input class="pt" placeholder="Titel der Position" value="${esc(p.bez)}" aria-label="Titel der Position"><button class="x" type="button" aria-label="Position entfernen">×</button></div>
+      <textarea class="pd" rows="${String(p.text||"").split("\n").length>1?2:1}" placeholder="Beschreibung unter dem Titel (optional)" aria-label="Beschreibung der Position">${esc(p.text||"")}</textarea>
       <div class="prow2"><label>Menge<input class="pm r" inputmode="decimal" value="${numIn(p.menge??1)}"></label><label>Einheit<select class="pe">${einhOpts(p.einheit)}</select></label><label><span class="pplbl">${priceLabel()}</span><input class="pp r" inputmode="decimal" placeholder="0,00" value="${numIn(p.preis)}"></label></div>
       <div class="ptot">${eur((+p.menge||0)*(+p.preis||0))}</div><div class="ptax tm-${posTax().m}">${posTaxNote((+p.menge||0)*(+p.preis||0))}</div></div>`;
   }
@@ -843,11 +845,16 @@ export function startApp(){
     const add=p=>{ rows.insertAdjacentHTML("beforeend",posRow(p)); upd(); };
     $("#addPos").onclick=()=>{ add({menge:1,einheit:"Stk."}); rows.lastElementChild.querySelector(".pt").focus(); };
     $("#addLabor").onclick=()=>add({bez:"Arbeitszeit / Reparatur", menge:1, einheit:"psch.", preis:S.firma.pauschale??39});
-    const at=$("#addTeil"); if(at) at.onchange=()=>{ const t=S.teile.find(x=>x.id===at.value); if(t) add({bez:t.bez+(t.artnr?` (${t.artnr})`:""), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); at.value=""; };
+    // Ersatzteil = Reparatur zum Festpreis – gleiches Muster wie auf der Website (rechnungPdf.js)
+    const at=$("#addTeil"); if(at) at.onchange=()=>{ const t=S.teile.find(x=>x.id===at.value); if(t){
+      const imei=($("#fImei")?.value ?? POS_IMEI ?? "").trim(), dienst=t.kategorie==="Dienstleistung";
+      add(dienst ? {bez:t.bez, menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}
+        : {bez:positionsTitel(t.bez,"",""), text:positionsText(t.garantie||S.firma.garantie||GARANTIE_STANDARD, imei), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); }
+      at.value=""; };
     rows.oninput=upd; rows.onchange=upd;
     rows.onclick=e=>{ if(e.target.classList.contains("x")){ e.target.closest(".pcard").remove(); upd(); } };
   }
-  function readPos(){ return $$("#posRows .pcard").map(r=>({bez:$(".pt",r).value.trim(), menge:parseNum($(".pm",r).value), einheit:$(".pe",r).value, preis:parseNum($(".pp",r).value), ...(r.dataset.teil?{teilId:r.dataset.teil}:{})})).filter(p=>p.bez||p.preis); }
+  function readPos(){ return $$("#posRows .pcard").map(r=>{ const tx=($(".pd",r)?.value||"").trim(); return {bez:$(".pt",r).value.trim(), ...(tx?{text:tx}:{}), menge:parseNum($(".pm",r).value), einheit:$(".pe",r).value, preis:parseNum($(".pp",r).value), ...(r.dataset.teil?{teilId:r.dataset.teil}:{})}; }).filter(p=>p.bez||p.preis); }
 
   function kundeSelect(sel, idp){
     const kOpts = [...S.kunden].sort((x,y)=>x.name.localeCompare(y.name,"de")).map(k=>`<option value="${k.id}" ${sel===k.id?"selected":""}>${esc(k.name)}</option>`).join("");
@@ -978,7 +985,7 @@ export function startApp(){
     return d;
   }
   function renderEditor(d, isEdit){
-    const T=TYP[d.typ]; POS_TAX={m:docTaxMode(d), p:dKu(d)?0:(d.mwst??19)};
+    const T=TYP[d.typ]; POS_TAX={m:docTaxMode(d), p:dKu(d)?0:(d.mwst??19)}; POS_IMEI=d.imei||"";
     const jobs=S.auftraege.filter(a=>!d.kundeId || a.kundeId===d.kundeId).sort((x,y)=>(y.created||"").localeCompare(x.created||""));
     const jOpts=jobs.map(a=>`<option value="${a.id}" ${d.auftragId===a.id?"selected":""}>#${esc(a.nr)} · ${esc(a.geraet)}</option>`).join("");
     const title = isEdit ? `${T.l} bearbeiten` : ({rechnung:"Neue Rechnung", angebot:"Neues Angebot", kva:"Neuer Kostenvoranschlag"})[d.typ];
@@ -1189,7 +1196,7 @@ export function startApp(){
     const title=`<div class="title">${T.up} ${nrHtml}</div>`;
     const sub=r.geraet?`<div class="sub">Gerät: ${e(r.geraet)}${r.imei?` · IMEI/SN ${e(r.imei)}`:""}</div>`:"";
     const intro=`<div class="intro">${e(X.anrede)}<br>${X.intro}</div>`;
-    const row=(p,i)=>`<tr><td>${i}</td><td>${e(p.bez)}</td><td class="r">${numIn(p.menge)}</td><td class="c">${e(p.einheit||"Stk.")}</td><td class="r">${eur(p.preis)}</td><td class="r"><b>${eur(p.menge*p.preis)}</b></td></tr>`;
+    const row=(p,i)=>`<tr><td>${i}</td><td>${e(p.bez)}${p.text?`<br><small>${e(p.text).replace(/\n/g,"<br>")}</small>`:""}</td><td class="r">${numIn(p.menge)}</td><td class="c">${e(p.einheit||"Stk.")}</td><td class="r">${eur(p.preis)}</td><td class="r"><b>${eur(p.menge*p.preis)}</b></td></tr>`;
     const thead=`<thead><tr><th style="width:44px">Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="c">Einheit</th><th class="r">Einzelpreis</th><th class="r">Gesamt</th></tr></thead>`;
     const empty=`<tr><td colspan="6" style="color:var(--ink-2)">Noch keine Positionen</td></tr>`;
     let rows;
@@ -1200,7 +1207,7 @@ export function startApp(){
     } else rows=r.positionen.length?r.positionen.map((p,i)=>row(p,i+1)).join(""):empty;
     const table=`<div class="tbl"><table>${thead}<tbody>${rows}</tbody></table></div>`;
     const sum=`<div class="sum">${c.rab?`<div><span>Summe Positionen</span><span>${eur(c.sum)}</span></div><div><span>Rabatt (${numIn(r.rabatt)} %)</span><span>− ${eur(c.rab)}</span></div>`:""}${c.p?`<div><span>Zwischensumme (netto)</span><span>${eur(c.netto)}</span></div><div><span>MwSt. (${numIn(c.p)} %)</span><span>${eur(c.mwst)}</span></div>`:""}<div class="g"><span>${c.p?"Gesamtbetrag (brutto)":"Gesamtbetrag"}</span><span>${eur(c.brutto)}</span></div></div>`;
-    const note=`<div class="note">${X.klein?"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.<br>":""}${noteBody(X,r)}</div>`;
+    const note=`<div class="note">${garantieHinweis(r.positionen)?e(garantieHinweis(r.positionen))+"<br>":""}${X.klein?"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.<br>":""}${noteBody(X,r)}</div>`;
     const greet=`<div class="greet">Mit freundlichen Grüßen<b>${e(f.name||"")}</b></div>`;
     const haft=sigPaper(r)+(f.haftung?`<div class="haft">${e(f.haftung).replace(/\n/g,"<br>")}</div>`:"");
     const foot=`<div class="foot"><div>${e(f.name)}<br>${br(D.firm)}</div><div>${f.bank?e(f.bank)+"<br>":""}${f.iban?"IBAN "+e(f.iban)+"<br>":""}${f.bic?"BIC "+e(f.bic):""}</div><div>${f.tel?"Tel. "+e(f.tel)+"<br>":""}${f.stnr?"Steuernr. "+e(f.stnr)+"<br>":""}${f.ustid?"USt-IdNr. "+e(f.ustid):""}</div></div>`;
@@ -1211,7 +1218,7 @@ export function startApp(){
 
     if(lay==="neutral"){ const B=neutralDaten(r,D), s=B.summen, N=neutralData(r,D);   // gleicher Aufbau wie rechnungPdf.js
       const z2=n=>new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2}).format(+n||0), ein=u=>String(u||"Stk.").replace(/^(Stk|Std)\.$/,"$1");
-      const prow=(p,i)=>`<tr><td>${i+1}.</td><td><b>${e(p.bez)}</b>${p.text?`<br>${e(p.text)}`:""}</td><td class="r">${z2(p.menge)} ${e(ein(p.einheit))}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
+      const prow=(p,i)=>`<tr><td>${i+1}.</td><td><b>${e(p.bez)}</b>${p.text?`<br>${e(p.text).replace(/\n/g,"<br>")}`:""}</td><td class="r">${z2(p.menge)} ${e(ein(p.einheit))}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
       const srow=(a,b,cls="")=>`<tr class="${cls}"><td></td><td colspan="3">${a}</td><td class="r">${b}</td></tr>`;
       const tax = s.mwst ? srow(`zzgl. Umsatzsteuer ${numIn(s.mwstSatz)} %`, eurTxt(s.mwst)) : srow(s.ku?"Umsatzsteuer nicht erhoben gemäß §19UStG.":"Umsatzsteuer 0 %", "");
       const meta=list=>list.filter(m=>m&&m[1]).map(([a,b])=>`<span>${e(a)}</span><span class="r">${e(b)}</span>`).join("");
@@ -1225,7 +1232,7 @@ export function startApp(){
         <table class="nt-tbl"><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
           <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td></td><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
           <tbody class="nt-sum">${s.rabatt?srow("Summe Positionen",eurTxt(s.summe))+srow(`Rabatt (${numIn(s.rabattSatz)} %)`,"− "+eurTxt(s.rabatt)):""}${srow("Gesamtbetrag netto",eurTxt(s.netto),"g")}${tax}${srow("<b>Gesamtbetrag brutto</b>",`<b>${eurTxt(s.brutto)}</b>`,"g")}</tbody></table>
-        ${B.texte.filter(Boolean).map(t=>`<div class="nt-text">${e(t).replace(/\n/g,"<br>")}</div>`).join("")}
+        ${[garantieHinweis(B.positionen), ...B.texte].filter(Boolean).map(t=>`<div class="nt-text">${e(t).replace(/\n/g,"<br>")}</div>`).join("")}
         <div class="nt-greet">Mit freundlichen Grüßen<b>${N.nm?`<span>${e(N.nm[1])}</span><span class="b2">${e(N.nm[2])}</span>`:e(f.name||"")}</b></div>
         <div class="spacer"></div><div class="nt-page">1/1</div>
         <div class="nt-foot">${fussSpalten(B.firma).map(cl=>`<div>${cl.map(z=>`<p>${e(z)}</p>`).join("")}</div>`).join("")}</div></div>`; }
@@ -1343,7 +1350,7 @@ export function startApp(){
     const ensure=(need,inTable)=>{ if(y+need>bottom){ doc.addPage(); pageDeco(false); y=CFG.contTop||25; if(inTable) tableHead(); } };
     function posRows(list,n){
       const cx=cols(), dw=(cx.menge-9)-cx.desc;
-      list.forEach(p=>{ fnt("normal",FS); const ls=doc.splitTextToSize(p.bez||"",dw); ensure(ls.length*RH()+2,true);
+      list.forEach(p=>{ fnt("normal",FS); const ls=[p.bez||"", ...String(p.text||"").split("\n").filter(Boolean)].flatMap(z=>doc.splitTextToSize(z,dw)); ensure(ls.length*RH()+2,true);
         col(INK); txt(String(++n),cx.pos,y); txt(ls,cx.desc,y); txt(numIn(p.menge),cx.menge,y,{align:"right"}); txt(p.einheit||"Stk.",cx.einh,y,{align:"center"}); txt(eur(p.preis),cx.ep,y,{align:"right"});
         fnt("bold",FS); txt(eur(p.menge*p.preis),cx.ges,y,{align:"right"}); fnt("normal",FS);
         y+=ls.length*RH()+CFG.rowGap; doc.setDrawColor(...(CFG.rowLine||[228,231,235])); doc.setLineWidth(.2); doc.line(L,y-RH()+.4,R,y-RH()+.4); });
@@ -1384,7 +1391,7 @@ export function startApp(){
       y+=h+5; col(INK);
     }
     function notesGreet(){
-      const arr=[...(X.klein?["Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."]:[]), ...(X.pay?[X.pay]:[]), ...(r.notiz?[...(X.pay?[""]:[]), r.notiz]:[])];
+      const arr=[...(garantieHinweis(r.positionen)?[garantieHinweis(r.positionen)]:[]), ...(X.klein?["Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."]:[]), ...(X.pay?[X.pay]:[]), ...(r.notiz?[...(X.pay?[""]:[]), r.notiz]:[])];
       fnt("normal",FS); col(INK);
       arr.forEach(n=>{ const ls=n?doc.splitTextToSize(n,R-L):[""]; ensure(ls.length*RH(),false); txt(ls,L,y); y+=ls.length*RH(); });
       y += lay==="kompakt"?5:8; ensure(12,false); txt("Mit freundlichen Grüßen",L,y); fnt("bold",FS); txt(f.name||"",L,y+RH()+1.5); fnt("normal",FS);
@@ -1481,11 +1488,12 @@ export function startApp(){
         <div class="field"><label for="tPreis">Verkaufspreis €</label><input id="tPreis" inputmode="decimal" placeholder="0,00" value="${numIn(t?.preis)}"></div>
         <div class="field"><label for="tEk">Einkaufspreis €</label><input id="tEk" inputmode="decimal" placeholder="optional" value="${numIn(t?.ek)}"></div>
         <div class="field"><label for="tBest">Bestand (Stk.)</label><input id="tBest" inputmode="numeric" placeholder="0" value="${numIn(t?.bestand)}"></div>
-        <div class="field"><label for="tLager">Lagerort</label><input id="tLager" placeholder="optional, z. B. Schublade 2" value="${esc(t?.lager)}"></div></div>
-        <p class="help">Wird ein Teil in eine Rechnung übernommen, sinkt der Bestand automatisch.</p></div>
+        <div class="field"><label for="tLager">Lagerort</label><input id="tLager" placeholder="optional, z. B. Schublade 2" value="${esc(t?.lager)}"></div>
+        <div class="field"><label for="tGar">Garantie</label><input id="tGar" placeholder="${esc(S.firma.garantie||GARANTIE_STANDARD)}" value="${esc(t?.garantie)}"></div></div>
+        <p class="help">Wird ein Teil in eine Rechnung übernommen, sinkt der Bestand automatisch. Auf dem Beleg steht darunter „inkl. Ersatzteil, Einbau &amp; Funktionstest · Garantie*“ – leer lassen = Standard-Garantie aus den Einstellungen, z. B. „lebenslange Garantie gegen Stickdrift“ für TMR-Sticks.</p></div>
       ${t?`<button class="btn danger" id="delT">Ersatzteil löschen</button>`:""}`, () => {
         const bez=val("tBez"); if(!bez){ toast("Bitte eine Bezeichnung eintragen"); $("#tBez").focus(); return false; }
-        save("teile",{...(t||{id:uid()}), bez, artnr:val("tArt"), preis:parseNum(val("tPreis")), ek:val("tEk")?parseNum(val("tEk")):"", bestand:parseNum(val("tBest")), lager:val("tLager"), kategorie:val("tKat")||"Artikel", einheit:val("tEinh")||"Stk."}); toast("Produkt gespeichert"); });
+        save("teile",{...(t||{id:uid()}), bez, artnr:val("tArt"), preis:parseNum(val("tPreis")), ek:val("tEk")?parseNum(val("tEk")):"", bestand:parseNum(val("tBest")), lager:val("tLager"), kategorie:val("tKat")||"Artikel", einheit:val("tEinh")||"Stk.", garantie:val("tGar")}); toast("Produkt gespeichert"); });
     const d=$("#delT"); if(d) d.onclick=()=>{ remove("teile",t.id); closeSheet(); toast("Ersatzteil gelöscht"); };
   }
 
@@ -1566,8 +1574,10 @@ export function startApp(){
         <p class="help" data-kp="gemini">Mit Key liest die KI beim Erfassen einer Ausgabe Händler, Datum, Rechnungs-Nr., Betrag und MwSt. aus. Dazu wird das Foto bzw. die PDF an Google gesendet – im kostenlosen Tarif darf Google die Inhalte zur Verbesserung seiner Dienste verwenden. Ohne Key oder bei einem Fehler nutzt die App automatisch die lokale Texterkennung. Den Key erstellen Sie in Google AI Studio; er wird nicht ins Backup geschrieben. Modell leer lassen = automatisch: Die App fragt Google, welche Modelle Ihr Key nutzen darf, und weicht bei Überlastung, Limit oder Zeitüberschreitung selbst auf das nächste aus.</p></div>
       <div class="group"><span class="glabel">Standards</span><div class="box">
         <div class="field"><label for="cZiel">Zahlungsziel (Tage)</label><input id="cZiel" inputmode="numeric" value="${f.ziel??14}"></div>
-        <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div></div></div>`, () => {
-        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
+        <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div>
+        <div class="field"><label for="cGar">Garantie (Standard)</label><input id="cGar" placeholder="${esc(GARANTIE_STANDARD)}" value="${esc(f.garantie||"")}"></div></div>
+        <p class="help">Steht bei Ersatzteil-Positionen in der zweiten Zeile. Bei einzelnen Produkten kann ein eigener Garantie-Text hinterlegt werden.</p></div>`, () => {
+        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), garantie:val("cGar"), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
         toast("Firmendaten gespeichert"); });
     bindTaxMode("cTax", m=>{ $("#cKlein").checked = m==="ku"; $("#cNetto").checked = m==="netto"; });
     const nrUpd=()=>{ const f2={...S.firma, ...readNrForm()};

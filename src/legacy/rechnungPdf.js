@@ -16,13 +16,29 @@
  *   meta1:       [["Rechnungsdatum","03.11.2026"], ["Lieferdatum","03.11.2026"]]
  *   meta2:       [["Auftrag","RM-00005"], ["Ihre Kundennummer","1034"], ["Ihr Ansprechpartner","Oleg Schäfer"]]
  *   unterzeile:  ["Rechnungsdatum entspricht Leistungsdatum", "Gerät: iPhone 11"]
- *   positionen:  [{ bez, text, menge, einheit, preis }]   (text = graue Zeile unter dem fetten Titel)
+ *   positionen:  [{ bez, text, menge, einheit, preis }]   (text = Zeile(n) unter dem fetten Titel, mehrere mit \n)
+ *                Enthält eine Position ein *, steht unter der Tabelle automatisch GARANTIE_HINWEIS.
  *   summen:      { netto, brutto, mwst, mwstSatz, rabatt, rabattSatz, summe, ku }   (ku = Kleinunternehmer)
  *   texte:       ["Bitte überweise …", "Wir bedanken uns …"]
  *   gruss:       "RepairMobile"
  *   schrift:     { name:"OpenSans", normal:"<base64 TTF>", bold:"<base64 TTF>" }   (optional, sonst Helvetica)
  * }
  */
+
+// Muster für Reparatur-Positionen (Website und WerkDoc gleich):
+//   Titel:     [Reparatur] [Gerät] – [Ausführung] (Festpreis)        Ausführung nur, wenn gewählt
+//   Zeile 2:   inkl. Ersatzteil, Einbau & Funktionstest · [Garantie]*
+//   Zeile 3:   Serien-/IMEI-Nr.: …                                    nur, wenn vorhanden
+export const GARANTIE_STANDARD = "12 Monate Garantie auf das Ersatzteil";
+export const GARANTIE_HINWEIS = "* Es gelten unsere Garantiebedingungen: repair-mobile.de/garantie. Ihre gesetzlichen Gewährleistungsrechte bleiben unberührt.";
+export function positionsTitel(reparatur, geraet, ausfuehrung) {
+  return [reparatur, geraet].map(s => String(s || "").trim()).filter(Boolean).join(" ") + (ausfuehrung ? " – " + String(ausfuehrung).trim() : "") + " (Festpreis)";
+}
+export function positionsText(garantie, imei) {
+  return [`inkl. Ersatzteil, Einbau & Funktionstest · ${String(garantie || GARANTIE_STANDARD).trim()}*`, imei ? `Serien-/IMEI-Nr.: ${String(imei).trim()}` : ""].filter(Boolean).join("\n");
+}
+// Hinweis unter der Tabelle, sobald eine Position mit * auf die Garantie verweist
+export const garantieHinweis = (positionen = []) => positionen.some(p => /\*/.test(String(p.bez || "") + String(p.text || ""))) ? GARANTIE_HINWEIS : "";
 
 // Fußzeile in vier Spalten: Anschrift | Kontakt | Steuer & Inhaber | Bank (Konto und BLZ aus einer deutschen IBAN)
 export function fussSpalten(f = {}) {
@@ -92,14 +108,16 @@ export function zeichneRechnung(doc, B) {
   kopf(); y += 3.1;
   (B.positionen || []).forEach((p, i) => {
     fnt("bold", 9.3); const t1 = doc.splitTextToSize(String(p.bez || ""), dw);
-    fnt("normal", 9.3); const t2 = p.text ? doc.splitTextToSize(String(p.text), dw) : [];
-    const h = (t1.length + t2.length) * 5.5 + 2.4;
+    fnt("normal", 9.3); const t2 = p.text ? String(p.text).split(/\r?\n/).flatMap(z => doc.splitTextToSize(z, dw)) : [];
+    // Zeilenabstand: 4,4 mm innerhalb von Titel/Beschreibung, 5,5 mm vom Titel zur Beschreibung (wie Vorlage)
+    const ZL = 4.4, ZT = 5.5, yT = (t1.length - 1) * ZL + (t2.length ? ZT : 0);
+    const h = yT + Math.max(0, t2.length - 1) * ZL + 7.9;
     if (y + h > BOTTOM) { neueSeite(); kopf(); y += 3.1; }
     const yl = y + 3.2; col(INK);
     fnt("normal", 9.3); txt(`${i + 1}.`, cPos, yl);
     txt(`${zahl(p.menge)} ${einheit(p.einheit)}`, cM, yl, { align: "right" }); txt(eur(p.preis), cE, yl, { align: "right" }); txt(eur((+p.menge || 0) * (+p.preis || 0)), cG, yl, { align: "right" });
-    fnt("bold", 9.3); txt(t1, cDesc, yl);
-    if (t2.length) { fnt("normal", 9.3); txt(t2, cDesc, yl + t1.length * 5.5); }
+    fnt("bold", 9.3); t1.forEach((z, j) => txt(z, cDesc, yl + j * ZL));
+    fnt("normal", 9.3); t2.forEach((z, j) => txt(z, cDesc, yl + yT + j * ZL));
     y += h;
   });
   if (y + 28 > BOTTOM) neueSeite();
@@ -117,8 +135,8 @@ export function zeichneRechnung(doc, B) {
 
   // ---- Texte + Gruß
   y += 7.7; fnt("normal", 9.3); col(INK);
-  (B.texte || []).filter(Boolean).forEach(t => { const ls = doc.splitTextToSize(String(t), R - L - 1.4); if (y + ls.length * 4.2 > BOTTOM) neueSeite(); txt(ls, L + 1.4, y); y += ls.length * 4.2 + 2.6; });
-  y += 9.5; if (y + 8 > BOTTOM) neueSeite();
+  [garantieHinweis(B.positionen), ...(B.texte || [])].filter(Boolean).forEach(t => { const ls = String(t).split(/\r?\n/).flatMap(z => doc.splitTextToSize(z, R - L - 1.4)); if (y + ls.length * 4.2 > BOTTOM) neueSeite(); ls.forEach((z, j) => txt(z, L + 1.4, y + j * 4.2)); y += ls.length * 4.2 + 2.6; });
+  y += 9.5; if (y + 4 > BOTTOM + 4) neueSeite();   // Gruß darf bis knapp über die Seitenzahl (267,7 mm) reichen
   fnt("normal", 9.3); txt("Mit freundlichen Grüßen", L + 1.4, y); y += 3.9;
   const g = B.gruss || f.name || "", gm = g.match(/^([A-ZÄÖÜ][a-zäöüß]+)([A-ZÄÖÜ][A-Za-zÄÖÜäöüß]*)$/);
   fnt("bold", 9.3); if (gm) { txt(gm[1], L + 1.4, y); col(BLUE); txt(gm[2], L + 1.4 + doc.getTextWidth(gm[1]), y); col(INK); } else txt(g, L + 1.4, y);
