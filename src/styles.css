@@ -728,6 +728,13 @@ html.auth-open, html.auth-open body{overflow:hidden}
 .nt-sum tr.g td{background:#ebebeb}
 .nt-text{margin-top:28px;font-size:12.4px;line-height:1.5;padding-left:5px}
 .nt-text+.nt-text{margin-top:10px}
+.nt-giro{display:flex;gap:22px;margin-top:14px;padding-left:5px;align-items:flex-start}
+.nt-giro figure{margin:0;width:98px;text-align:center;flex-shrink:0}
+.nt-giro svg{width:98px;height:98px;display:block}
+.nt-giro figcaption{font-size:8.4px;color:#444;margin-top:4px;line-height:1.2}
+.nt-giro>div{display:grid;grid-template-columns:128px auto;column-gap:0;row-gap:1px;font-size:12.4px;padding-top:6px}
+.nt-giro>div b{grid-column:1/-1;margin-bottom:4px}
+.nt-giro>div span:nth-child(even){color:#444}
 .nt-greet{margin-top:36px;font-size:12.4px;padding-left:5px;line-height:1.25}
 .nt-greet b{display:block;font-weight:700}
 .nt-greet .b2{color:#4a9cc9}

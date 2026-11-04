@@ -22,6 +22,8 @@
  *   texte:       ["Bitte überweise …", "Wir bedanken uns …"]
  *   gruss:       "RepairMobile"
  *   schrift:     { name:"OpenSans", normal:"<base64 TTF>", bold:"<base64 TTF>" }   (optional, sonst Helvetica)
+ *   girocode:    { name, iban, bic, betrag, zweck }   (optional: QR-Code zum Überweisen + Bankdaten als Text)
+ *   qr:          text => ({ n, dark(r, c) })          (QR-Matrix, z. B. mit qrcode-generator erzeugt)
  * }
  */
 
@@ -39,6 +41,13 @@ export function positionsText(garantie, imei) {
 }
 // Hinweis unter der Tabelle, sobald eine Position mit * auf die Garantie verweist
 export const garantieHinweis = (positionen = []) => positionen.some(p => /\*/.test(String(p.bez || "") + String(p.text || ""))) ? GARANTIE_HINWEIS : "";
+
+// GiroCode (EPC-QR für SEPA-Überweisungen): Banking-Apps füllen damit Empfänger, IBAN, Betrag und Verwendungszweck aus
+export function giroCodeText(g = {}) {
+  const betrag = (Math.round((+g.betrag || 0) * 100) / 100).toFixed(2);
+  return ["BCD", "002", "1", "SCT", String(g.bic || "").replace(/\s+/g, "").toUpperCase(), String(g.name || "").trim().slice(0, 70),
+    String(g.iban || "").replace(/\s+/g, "").toUpperCase(), "EUR" + betrag, "", "", String(g.zweck || "").trim().slice(0, 140)].join("\n");
+}
 
 // Fußzeile in vier Spalten: Anschrift | Kontakt | Steuer & Inhaber | Bank (Konto und BLZ aus einer deutschen IBAN)
 export function fussSpalten(f = {}) {
@@ -135,7 +144,28 @@ export function zeichneRechnung(doc, B) {
 
   // ---- Texte + Gruß
   y += 7.7; fnt("normal", 9.3); col(INK);
-  [garantieHinweis(B.positionen), ...(B.texte || [])].filter(Boolean).forEach(t => { const ls = String(t).split(/\r?\n/).flatMap(z => doc.splitTextToSize(z, R - L - 1.4)); if (y + ls.length * 4.2 > BOTTOM) neueSeite(); ls.forEach((z, j) => txt(z, L + 1.4, y + j * 4.2)); y += ls.length * 4.2 + 2.6; });
+  const absatz = t => { fnt("normal", 9.3); col(INK); const ls = String(t).split(/\r?\n/).flatMap(z => doc.splitTextToSize(z, R - L - 1.4)); if (y + ls.length * 4.2 > BOTTOM) neueSeite(); ls.forEach((z, j) => txt(z, L + 1.4, y + j * 4.2)); y += ls.length * 4.2 + 2.6; };
+  const hinweis = garantieHinweis(B.positionen); if (hinweis) absatz(hinweis);
+
+  // ---- GiroCode + Bankdaten (nur bei offenen Rechnungen; B.qr = Funktion, die aus Text eine QR-Matrix macht)
+  const gc = B.girocode;
+  if (gc && gc.iban && +gc.betrag > 0 && typeof B.qr === "function") {
+    let m = null; try { m = B.qr(giroCodeText(gc)); } catch (e) { m = null; }
+    if (m && m.n) {
+      const S = 26, X = L + 1.4, Y0 = y - 2.5;
+      if (Y0 + S + 8 > BOTTOM) neueSeite();
+      const yq = Math.max(y - 2.5, 20), z = S / m.n;
+      doc.setFillColor(0, 0, 0);
+      for (let r = 0; r < m.n; r++) { let c = 0; while (c < m.n) { if (!m.dark(r, c)) { c++; continue; } let e = c; while (e < m.n && m.dark(r, e)) e++; doc.rect(X + c * z, yq + r * z, (e - c) * z + 0.01, z + 0.01, "F"); c = e; } }
+      fnt("normal", 6.3); col(SUB); txt("GiroCode", X + S / 2, yq + S + 3.8, { align: "center" }); txt("mit der Banking-App scannen", X + S / 2, yq + S + 6.4, { align: "center" });
+      const bx = X + S + 6; let by = yq + 4;
+      fnt("bold", 9.3); col(INK); txt("Bezahlen per Überweisung", bx, by); by += 5;
+      [["Empfänger", gc.name], ["IBAN", String(gc.iban).replace(/\s+/g, "").replace(/(.{4})/g, "$1 ").trim()], ["BIC", gc.bic], ["Betrag", eur(gc.betrag)], ["Verwendungszweck", gc.zweck]]
+        .filter(x => x[1]).forEach(([a, b]) => { fnt("normal", 9.3); col(SUB); txt(a, bx, by); col(INK); txt(String(b), bx + 34, by); by += 4.3; });
+      y = Math.max(yq + S + 12, by + 3);
+    }
+  }
+  (B.texte || []).filter(Boolean).forEach(absatz);
   y += 9.5; if (y + 4 > BOTTOM + 4) neueSeite();   // Gruß darf bis knapp über die Seitenzahl (267,7 mm) reichen
   fnt("normal", 9.3); txt("Mit freundlichen Grüßen", L + 1.4, y); y += 3.9;
   const g = B.gruss || f.name || "", gm = g.match(/^([A-ZÄÖÜ][a-zäöüß]+)([A-ZÄÖÜ][A-Za-zÄÖÜäöüß]*)$/);

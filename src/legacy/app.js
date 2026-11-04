@@ -5,7 +5,11 @@
  * wird zusätzlich der Konto-Speicher genutzt.
  */
 import BRAND_LOGO from "../assets/brandLogo.js";
-import { zeichneRechnung, fussSpalten, positionsTitel, positionsText, garantieHinweis, GARANTIE_STANDARD } from "./rechnungPdf.js";
+import { zeichneRechnung, fussSpalten, positionsTitel, positionsText, garantieHinweis, GARANTIE_STANDARD, giroCodeText } from "./rechnungPdf.js";
+import qrcode from "qrcode-generator";
+
+// QR-Matrix für den GiroCode (UTF-8, Fehlerkorrektur M – wie von der EPC-Richtlinie empfohlen)
+function qrMatrix(text){ qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"]; const q=qrcode(0,"M"); q.addData(text,"Byte"); q.make(); return { n:q.getModuleCount(), dark:(r,c)=>q.isDark(r,c) }; }
 
 /* Datei speichern: im Claude-Artifact über dessen Download-Funktion,
    sonst Teilen-Menü (iPhone/Android, z. B. WhatsApp, Mail, Dateien) oder normaler Download. */
@@ -1232,7 +1236,11 @@ export function startApp(){
         <table class="nt-tbl"><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
           <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td></td><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
           <tbody class="nt-sum">${s.rabatt?srow("Summe Positionen",eurTxt(s.summe))+srow(`Rabatt (${numIn(s.rabattSatz)} %)`,"− "+eurTxt(s.rabatt)):""}${srow("Gesamtbetrag netto",eurTxt(s.netto),"g")}${tax}${srow("<b>Gesamtbetrag brutto</b>",`<b>${eurTxt(s.brutto)}</b>`,"g")}</tbody></table>
-        ${[garantieHinweis(B.positionen), ...B.texte].filter(Boolean).map(t=>`<div class="nt-text">${e(t).replace(/\n/g,"<br>")}</div>`).join("")}
+        ${garantieHinweis(B.positionen)?`<div class="nt-text">${e(garantieHinweis(B.positionen))}</div>`:""}
+        ${B.girocode ? (()=>{ const g=B.girocode, m=qrMatrix(giroCodeText(g)); let p=""; for(let y=0;y<m.n;y++) for(let x=0;x<m.n;x++) if(m.dark(y,x)) p+=`M${x} ${y}h1v1h-1z`;
+          return `<div class="nt-giro"><figure><svg viewBox="0 0 ${m.n} ${m.n}" shape-rendering="crispEdges"><path d="${p}"/></svg><figcaption>GiroCode<br>mit der Banking-App scannen</figcaption></figure>
+            <div><b>Bezahlen per Überweisung</b>${[["Empfänger",g.name],["IBAN",String(g.iban).replace(/\s+/g,"").replace(/(.{4})/g,"$1 ").trim()],["BIC",g.bic],["Betrag",eurTxt(g.betrag)],["Verwendungszweck",g.zweck]].filter(x=>x[1]).map(([a,b])=>`<span>${e(a)}</span><span>${e(b)}</span>`).join("")}</div></div>`; })() : ""}
+        ${B.texte.filter(Boolean).map(t=>`<div class="nt-text">${e(t).replace(/\n/g,"<br>")}</div>`).join("")}
         <div class="nt-greet">Mit freundlichen Grüßen<b>${N.nm?`<span>${e(N.nm[1])}</span><span class="b2">${e(N.nm[2])}</span>`:e(f.name||"")}</b></div>
         <div class="spacer"></div><div class="nt-page">1/1</div>
         <div class="nt-foot">${fussSpalten(B.firma).map(cl=>`<div>${cl.map(z=>`<p>${e(z)}</p>`).join("")}</div>`).join("")}</div></div>`; }
@@ -1285,7 +1293,10 @@ export function startApp(){
       meta2:[r.websiteAuftrag?["Auftrag", r.websiteAuftrag]:null, byL("Ihre Kundennummer"), byL("Ihr Ansprechpartner")],
       unterzeile:unter, positionen:r.positionen,
       summen:{ netto:c.netto, brutto:c.brutto, mwst:c.mwst, mwstSatz:c.p, rabatt:c.rab, rabattSatz:r.rabatt, summe:c.sum, ku:dKu(r) },
-      texte:[X.pay, r.notiz, N.thanks, f.haftung], gruss:f.name, schrift:PDF_SCHRIFT };
+      texte:[X.pay, r.notiz, N.thanks, f.haftung], gruss:f.name, schrift:PDF_SCHRIFT, qr:qrMatrix,
+      // GiroCode nur auf offenen Rechnungen mit Nummer
+      girocode: t==="rechnung" && r.nr && !["bezahlt","storniert"].includes(dStatus(r)) && f.iban && c.brutto>0
+        ? { name:f.kontoinhaber||f.inhaber||f.ansprechpartner||f.name, iban:f.iban, bic:f.bic, betrag:c.brutto, zweck:r.nr } : null };
   }
   function buildPdfDoc(r){
     const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"mm",format:"a4"});
@@ -1544,7 +1555,8 @@ export function startApp(){
         <div class="field"><label for="cLogo">Neues Logo</label><input type="file" id="cLogo" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="text-align:left"></div>
         ${logo?`<div class="field"><button type="button" class="btn ghost sm" id="cLogoDel">Logo entfernen</button></div>`:""}</div>
         <p class="help">PNG oder JPG. Weiße Ränder werden automatisch abgeschnitten, damit das Logo oben links auf dem Beleg so groß wie möglich und unverzerrt erscheint.</p></div>
-      <div class="group"><span class="glabel">Bankverbindung</span><div class="box">${fld("cBank","Bank",f.bank,"z. B. Sparkasse")}${fld("cIban","IBAN",f.iban,"DE00 0000 0000 0000 0000 00","mono")}${fld("cBic","BIC",f.bic,"optional","mono")}</div></div>
+      <div class="group"><span class="glabel">Bankverbindung</span><div class="box">${fld("cBank","Bank",f.bank,"z. B. Sparkasse")}${fld("cIban","IBAN",f.iban,"DE00 0000 0000 0000 0000 00","mono")}${fld("cBic","BIC",f.bic,"optional","mono")}${fld("cKInh","Kontoinhaber",f.kontoinhaber,"Name wie bei der Bank, z. B. Oleg Schäfer")}</div>
+        <p class="help">Der Kontoinhaber steht im GiroCode (QR-Code zum Überweisen) auf der Rechnung. Er muss genau so lauten wie bei deiner Bank, sonst warnt die Banking-App des Kunden bei der Empfängerprüfung.</p></div>
       <div class="group"><span class="glabel">Steuer</span><div class="box">${fld("cStnr","Steuernummer",f.stnr,"123/456/78901","mono")}${fld("cUst","USt-IdNr.",f.ustid,"optional","mono")}
         <input type="checkbox" id="cKlein" hidden ${f.kleinunternehmer?"checked":""}><input type="checkbox" id="cNetto" hidden ${f.netto?"checked":""}></div>
         <span class="glabel tmhead">Steuer-Modus (Standard für neue Belege)</span>
@@ -1577,7 +1589,7 @@ export function startApp(){
         <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div>
         <div class="field"><label for="cGar">Garantie (Standard)</label><input id="cGar" placeholder="${esc(GARANTIE_STANDARD)}" value="${esc(f.garantie||"")}"></div></div>
         <p class="help">Steht bei Ersatzteil-Positionen in der zweiten Zeile. Bei einzelnen Produkten kann ein eigener Garantie-Text hinterlegt werden.</p></div>`, () => {
-        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), garantie:val("cGar"), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
+        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), kontoinhaber:val("cKInh"), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), garantie:val("cGar"), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
         toast("Firmendaten gespeichert"); });
     bindTaxMode("cTax", m=>{ $("#cKlein").checked = m==="ku"; $("#cNetto").checked = m==="netto"; });
     const nrUpd=()=>{ const f2={...S.firma, ...readNrForm()};

@@ -174,7 +174,7 @@ begin
       'name', firma->>'name', 'strasse', firma->>'strasse', 'plz', firma->>'plz', 'ort', firma->>'ort',
       'tel', firma->>'tel', 'mail', firma->>'mail', 'ansprechpartner', firma->>'ansprechpartner',
       'bank', firma->>'bank', 'iban', firma->>'iban', 'bic', firma->>'bic', 'stnr', firma->>'stnr', 'ustid', firma->>'ustid',
-      'inhaber', firma->>'inhaber', 'land', firma->>'land', 'haftung', firma->>'haftung', 'logo', firma->>'logo')));
+      'inhaber', firma->>'inhaber', 'kontoinhaber', firma->>'kontoinhaber', 'land', firma->>'land', 'haftung', firma->>'haftung', 'logo', firma->>'logo')));
 end $$;
 revoke all on function public.wb_website_rechnung(text, jsonb, jsonb) from public;
 grant execute on function public.wb_website_rechnung(text, jsonb, jsonb) to anon;
@@ -196,6 +196,26 @@ end $$;
 revoke all on function public.wb_website_versendet(text, text, text) from public;
 grant execute on function public.wb_website_versendet(text, text, text) to anon;
 
+-- Zahlung eingegangen (PayPal oder Überweisung): Status "bezahlt" + Datum – nur Website-Rechnungen, nicht bei Storno
+create or replace function public.wb_website_bezahlt(p_key text, p_id text, p_zahlart text) returns void
+language plpgsql security definer set search_path = public, extensions as $$
+declare u uuid;
+begin
+  select z.user_id into u from public.wb_website_zugang z
+   where z.schluessel_hash = encode(extensions.digest(coalesce(p_key, ''), 'sha256'), 'hex');
+  if u is null then raise exception 'zugang_verweigert' using errcode = '28000'; end if;
+  update public.wb_records r set
+    data = r.data || jsonb_build_object('status', 'bezahlt', 'bezahltAm', to_char(now() at time zone 'Europe/Berlin', 'YYYY-MM-DD'),
+           'verlauf', coalesce(r.data->'verlauf', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+             't', to_char(now() at time zone 'Europe/Berlin', 'YYYY-MM-DD"T"HH24:MI'),
+             'e', 'Bezahlt per ' || case when p_zahlart = 'paypal' then 'PayPal' else 'Überweisung' end || ' (über die Website)'))),
+    upd = (extract(epoch from clock_timestamp()) * 1000)::bigint, updated_at = now()
+  where r.user_id = u and r.coll = 'rechnungen' and r.id = p_id and r.data->>'quelle' = 'website'
+    and coalesce(r.data->>'status', 'offen') not in ('bezahlt', 'storniert');
+end $$;
+revoke all on function public.wb_website_bezahlt(text, text, text) from public;
+grant execute on function public.wb_website_bezahlt(text, text, text) to anon;
+
 -- Status einer Website-Rechnung abfragen (für "Storniert?" im Admin-Bereich) – gibt nur Nummer + Status zurück
 create or replace function public.wb_website_status(p_key text, p_ref text) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
@@ -215,5 +235,5 @@ grant execute on function public.wb_website_status(text, text) to anon;
 -- EINMALIG DANACH (E-Mail deines WerkDoc-Kontos eintragen):
 --   select public.wb_website_zugang_erzeugen('info@repair-mobile.de');
 -- Das Ergebnis ist der Website-Schlüssel -> in Supabase (Website-Projekt) als Edge-Function-Secret
--- WERKDOC_WEBSITE_KEY eintragen. Er kann nur die drei wb_website_*-Funktionen oben aufrufen.
+-- WERKDOC_WEBSITE_KEY eintragen. Er kann nur die vier wb_website_*-Funktionen oben aufrufen.
 -- =====================================================================
