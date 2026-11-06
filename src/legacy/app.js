@@ -5,11 +5,6 @@
  * wird zusätzlich der Konto-Speicher genutzt.
  */
 import BRAND_LOGO from "../assets/brandLogo.js";
-import { zeichneRechnung, fussSpalten, positionsTitel, positionsText, garantieHinweis, GARANTIE_STANDARD, giroCodeText } from "./rechnungPdf.js";
-import qrcode from "qrcode-generator";
-
-// QR-Matrix für den GiroCode (UTF-8, Fehlerkorrektur M – wie von der EPC-Richtlinie empfohlen)
-function qrMatrix(text){ qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"]; const q=qrcode(0,"M"); q.addData(text,"Byte"); q.make(); return { n:q.getModuleCount(), dark:(r,c)=>q.isDark(r,c) }; }
 
 /* Datei speichern: im Claude-Artifact über dessen Download-Funktion,
    sonst Teilen-Menü (iPhone/Android, z. B. WhatsApp, Mail, Dateien) oder normaler Download. */
@@ -119,7 +114,7 @@ export function startApp(){
     block:{l:"Header-Block", d:"Farbiger Kopf mit Logo und Titel"},
     side:{l:"Zweispaltig", d:"Firmen- und Bankdaten in der Seitenleiste"},
     werkstatt:{l:"Werkstatt", d:"Gerätefeld, Arbeitslohn und Teile getrennt"},
-    neutral:{l:"Neutral", d:"Logo mittig, Stammdaten rechts – wie die Website-Rechnungen"}
+    neutral:{l:"Neutral", d:"Logo mittig, Stammdaten rechts, Zebra-Tabelle"}
   };
   const TEXT_SUGGEST = {
     textRechnung:"Auf verbaute Ersatzteile gewähren wir zusätzlich 6 Monate Garantie. Ihre gesetzlichen Gewährleistungsrechte bleiben davon unberührt. Ausgenommen von der Garantie sind Schäden durch Sturz, Feuchtigkeit oder Eingriffe Dritter.",
@@ -188,9 +183,7 @@ export function startApp(){
   function applyBranding(){
     ensureOwnLogo();
     const a = ACCENTS[S.firma.akzent] || ACCENTS.repair; const st=document.documentElement.style;
-    st.setProperty("--accent-l", a.c); st.setProperty("--accent-d", a.d);
-    st.setProperty("--accent-fg-l", "#ffffff"); st.setProperty("--accent-fg-d", a.fd);
-    st.setProperty("--doc-accent", a.c); st.setProperty("--tab-on", a.bar);
+    st.setProperty("--doc-accent", a.c);   // App-Oberfläche: festes Blau (Designsystem), Akzentfarbe nur für Belege/PDF
   }
   // Belege zeigen nur das eigene Logo der Firma – ohne Logo steht dort der Firmenname.
   const docLogo = () => S.firma.logo || "";
@@ -204,43 +197,25 @@ export function startApp(){
   const NR_KEY = { job:"preJob", rechnung:"preRe", angebot:"preAn", kva:"preKv" };
   function nrPrefix(kind, f=S.firma){ const v=f[NR_KEY[kind]]; return (v==null || String(v).trim()==="") ? NR_DEF[kind] : String(v).trim(); }
   const nrWithYear = (f=S.firma) => f.nrJahr !== false;
-  // Belegnummer, z. B. "RE-001/2026" (mit Jahr) oder "RE-001" (ohne Jahr). Aufträge immer ohne Jahr: "JOB-0001".
-  const nrSuffix = (kind, f=S.firma, y=new Date().getFullYear()) => kind!=="job" && nrWithYear(f) ? `/${y}` : "";
-  function fmtNr(kind, n, f=S.firma, y=new Date().getFullYear()){ return nrPrefix(kind,f) + (kind==="job" ? pad4(n) : String(n).padStart(3,"0")) + nrSuffix(kind,f,y); }
-  // höchste vergebene laufende Nummer in genau diesem Format (andere/alte Formate zählen nicht mit)
-  function nrMax(list, kind, f=S.firma, y=new Date().getFullYear()){ const p=nrPrefix(kind,f), s=nrSuffix(kind,f,y); let m=0;
-    for(const x of list){ const n=String(x.nr||""); if(!n.startsWith(p) || !n.endsWith(s) || n.length<=p.length+s.length) continue; const rest=n.slice(p.length, n.length-s.length); if(/^\d+$/.test(rest)) m=Math.max(m, parseInt(rest,10)); } return m; }
-  function readNrForm(){ const t=id=>($("#"+id)?.value||"").replace(/\s+/g,"").toUpperCase(), o={ preJob:t("cPreJob"), preRe:t("cPreRe"), preAn:t("cPreAn"), preKv:t("cPreKv"), nrJahr:$("#cNrJahr")?.checked!==false };
-    const st=parseInt(t("cReStart"),10); if($("#cReStart")) Object.assign(o, st>1 ? { reStart:st, reStartYear:new Date().getFullYear() } : { reStart:0, reStartYear:0 }); return o; }
+  // Stamm einer neuen Nummer, z. B. "RE-2026-" (mit Jahr) oder "RE-" (ohne Jahr). Aufträge immer ohne Jahr.
+  function nrStem(kind, f=S.firma, y=new Date().getFullYear()){ const p=nrPrefix(kind,f); return kind!=="job" && nrWithYear(f) ? `${p}${y}-` : p; }
+  // höchste vergebene laufende Nummer zu genau diesem Stamm (andere/alte Formate zählen nicht mit)
+  function nrMax(list, stem){ let m=0; for(const x of list){ const n=String(x.nr||""); if(!n.startsWith(stem)) continue; const rest=n.slice(stem.length); if(/^\d+$/.test(rest)) m=Math.max(m, parseInt(rest,10)); } return m; }
+  function readNrForm(){ const t=id=>($("#"+id)?.value||"").replace(/\s+/g,"").toUpperCase(); return { preJob:t("cPreJob"), preRe:t("cPreRe"), preAn:t("cPreAn"), preKv:t("cPreKv"), nrJahr:$("#cNrJahr")?.checked!==false }; }
   // laufende Nummer = höchste bisher vergebene (egal mit welchem Kürzel) + 1; mit Jahreszahl nur Belege aus diesem Jahr
   function runNo(list, y){ return Math.max(0, ...list.map(x=>seqNo(x.nr, y))); }
-  function freeNr(kind, n, list, f=S.firma, y=new Date().getFullYear()){ const taken=new Set(list.map(x=>String(x.nr||""))); let nr; do{ nr=fmtNr(kind,n++,f,y); }while(taken.has(nr)); return nr; }
-  const nextJobNrFor = f => freeNr("job", 1+Math.max(runNo(S.auftraege,-1), nrMax(S.auftraege,"job",f)), S.auftraege, f);
+  function freeNr(stem, n, list){ const taken=new Set(list.map(x=>String(x.nr||""))); let nr; do{ nr=stem+pad4(n++); }while(taken.has(nr)); return nr; }
+  const nextJobNrFor = f => freeNr(nrStem("job",f), 1+Math.max(runNo(S.auftraege,-1), nrMax(S.auftraege, nrStem("job",f))), S.auftraege);
   const nextJobNr = () => nextJobNrFor(S.firma);
   const dTyp = r => r.typ || "rechnung";
-  // Erstellte Rechnungen (mit Nummer) sind gesperrt: nicht löschen, nicht ändern – korrigiert wird nur per Storno
-  const docLocked = r => dTyp(r)==="rechnung" && !!r.nr;
   const dKu = r => r.ku ?? r.kleinunternehmer ?? (r.mwst===0 && !!S.firma.kleinunternehmer);
   const dMwst = r => dKu(r) ? 0 : (r.mwst ?? 19);
   const dBrutto = r => r.brutto ?? true;
-  // laufende Nummer, die als Nächstes dran ist (nur aus den Daten auf diesem Gerät)
-  function nextSeq(typ, f=S.firma, y=new Date().getFullYear()){
+  function nextNr(typ, f=S.firma){ const y=new Date().getFullYear(); const stem=nrStem(typ,f,y);
     const all=S.rechnungen.filter(r=>dTyp(r)===typ && r.nr), scope = nrWithYear(f) ? all.filter(r=>(r.datum||"").startsWith(String(y))) : all;
-    const used=Math.max(runNo(scope, y), nrMax(all, typ, f, y));
-    const start = typ==="rechnung" && +f.reStartYear===y ? (+f.reStart||1)-1 : 0; return 1+Math.max(used,start); }
-  function nextNr(typ, f=S.firma){ const y=new Date().getFullYear(); return freeNr(typ, nextSeq(typ,f,y), S.rechnungen.filter(r=>dTyp(r)===typ && r.nr), f, y); }
-  const shownNr = r => r.nr || `${nrPrefix(dTyp(r))}···${nrSuffix(dTyp(r))}`;
-  // Belegnummer über den gemeinsamen Zähler in der Cloud vergeben – Laden und Website zählen dieselbe Reihe.
-  // Ohne Cloud-Konto zählt nur dieses Gerät. Mit Cloud-Konto, aber ohne Netz: Fehler → Beleg bleibt Entwurf.
-  async function reserveNr(typ){
-    const f=S.firma, y=new Date().getFullYear(), list=S.rechnungen.filter(r=>dTyp(r)===typ && r.nr);
-    if(!cloudOn()) return nextNr(typ);
-    if(navigator.onLine===false) throw new Error("offline");
-    const c=await sbClient();
-    const { data, error }=await withTimeout(c.rpc("wb_naechste_nr", { p_kind:typ, p_jahr:nrWithYear(f)?y:0, p_min:nextSeq(typ,f,y) }), 15000, "offline");
-    if(error){ if(error.code==="PGRST202"){ console.warn("wb_naechste_nr fehlt – Nummer nur lokal vergeben"); return nextNr(typ); } throw error; }
-    return freeNr(typ, +data, list, f, y);
-  }
+    const used=Math.max(runNo(scope, y), nrMax(all, stem));
+    const start = typ==="rechnung" && +f.reStartYear===y ? (+f.reStart||1)-1 : 0; return freeNr(stem, 1+Math.max(used,start), all); }
+  const shownNr = r => r.nr || `${nrStem(dTyp(r))}····`;
   /* Steuer-Modus: A = Kleinunternehmer, B = Regelbesteuerung Brutto-Eingabe, C = Regelbesteuerung Netto-Eingabe */
   const TAXM = {
     ku:{k:"A", t:"Kleinunternehmer (§ 19 UStG)", s:"Keine Umsatzsteuer – der eingegebene Preis ist der Endpreis."},
@@ -280,15 +255,16 @@ export function startApp(){
   const defaultNote = typ => (typ==="rechnung" ? S.firma.textRechnung : S.firma.textAngebot) || "";
 
   /* ---------- UI state ---------- */
-  const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"auftraege", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
-  const titles = {auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="62";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
-  const TAB_ORDER=["auftraege","kalender","rechnungen","kunden","mehr"];
+  const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"home", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
+  const titles = {home:"Übersicht", auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
+  const APP_VER="63";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const TAB_ORDER=["home","auftraege","kalender","rechnungen","kunden"];   // Einstellungen: Zahnrad oben rechts
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
   let navSeq=0;
   function setActiveTab(v){
-    $("#tabs").style.setProperty("--i", Math.max(0,TAB_ORDER.indexOf(v)));
+    const ix=TAB_ORDER.indexOf(v); $("#tabs").style.setProperty("--i", Math.max(0,ix)); $("#tabs").classList.toggle("noact", ix<0);   // Einstellungen: kein Tab aktiv
+    $("#btnMenu")?.setAttribute("aria-pressed", String(v==="mehr"));
     $$(".tab").forEach(t => t.dataset.v===v ? t.setAttribute("aria-current","page") : t.removeAttribute("aria-current"));
   }
   function switchView(v){
@@ -354,7 +330,7 @@ export function startApp(){
       if(!sw || sw.src!==src) return; const dx=x-sw.x, dy=y-sw.y;
       if(!sw.lock){ if(Math.abs(dx)<12 && Math.abs(dy)<12) return; sw.lock = Math.abs(dx)>Math.abs(dy) ? 1 : -1; }
       if(sw.lock!==1) return;
-      sw.dx=dx; const i=TAB_ORDER.indexOf(UI.view), edge=(dx>0&&i===0)||(dx<0&&i===TAB_ORDER.length-1);
+      sw.dx=dx; const i=TAB_ORDER.indexOf(UI.view), edge=i<0||(dx>0&&i===0)||(dx<0&&i===TAB_ORDER.length-1);
       const v=$("#main .view"); if(v && !reducedMotion()){ const m=edge?dx*.12:dx*.35; v.style.transform=`translateX(${m}px)`; v.style.opacity=String(1-Math.min(.35,Math.abs(m)/300)); }
     };
     const end = src => {
@@ -362,7 +338,7 @@ export function startApp(){
       const s0=sw; sw=null; const v=$("#main .view");
       const reset = () => { if(v){ v.style.transform=""; v.style.opacity=""; } };
       if(s0.lock!==1){ reset(); return; }
-      const i=TAB_ORDER.indexOf(UI.view), dx=s0.dx, fast=Math.abs(dx)/(performance.now()-s0.t) > .35;
+      const i=TAB_ORDER.indexOf(UI.view); if(i<0){ reset(); return; } const dx=s0.dx, fast=Math.abs(dx)/(performance.now()-s0.t) > .35;
       const j = (Math.abs(dx)>55 || (fast && Math.abs(dx)>28)) ? i+(dx<0?1:-1) : i;
       if(j!==i && j>=0 && j<TAB_ORDER.length && performance.now()-lastFire>350){ lastFire=performance.now(); if(reducedMotion()) reset(); switchView(TAB_ORDER[j]); return; }
       if(v && v.animate && v.style.transform){ const from=v.style.transform, op=v.style.opacity||1; reset();
@@ -380,33 +356,113 @@ export function startApp(){
     window.addEventListener("pointerup",   e => { if(e.pointerType==="touch") end("p"); }, O);
     window.addEventListener("pointercancel",e => { if(e.pointerType==="touch") end("p"); }, O);
   })();
-  $("#fab").addEventListener("click", () => {
+  function addAction(){
+    if(UI.view==="home") return openPicker("Neu anlegen", [
+      {label:"Auftrag", sub:"Gerät annehmen", v:"job"}, {label:"Rechnung", sub:"Neue Rechnung schreiben", v:"re"},
+      {label:"Angebot / Kostenvoranschlag", sub:"Vor der Reparatur", v:"an"}, {label:"Kunde", sub:"Kontakt anlegen", v:"ku"},
+      {label:"Ausgabe / Beleg", sub:"Foto vom Kassenzettel, KI liest ihn aus", v:"aus"}],
+      o => o.v==="job" ? openAuftrag() : o.v==="re" ? openDocEditor({typ:"rechnung"}) : o.v==="an" ? openDocEditor({typ:"angebot"}) : o.v==="ku" ? openKunde() : newAusgabe());
     if(UI.view==="kunden") openKunde(); else if(UI.view==="rechnungen" && UI.docSeg==="ausgaben") newAusgabe(); else if(UI.view==="rechnungen") openDocEditor({typ: UI.docSeg==="angebote"?"angebot":"rechnung"});
     else if(UI.view==="mehr") openTeil(); else openAuftrag(null, UI.view==="kalender" ? UI.calDay : null);
-  });
+  }
+  $("#fab").addEventListener("click", addAction);
+  $("#btnAdd").addEventListener("click", addAction);
 
   /* ---------- render ---------- */
   function render(){
     applyBranding();
     $("#viewTitle").textContent = UI.view==="rechnungen" && UI.docSeg==="ausgaben" ? "Ausgaben" : titles[UI.view];
     setActiveTab(UI.view);
-    $("#fab").hidden = !!UI.sel;
-    $("#fab").setAttribute("aria-label", {auftraege:"Neuer Auftrag",kalender:"Neuer Termin",rechnungen:UI.docSeg==="ausgaben"?"Beleg erfassen":"Neues Dokument",kunden:"Neuer Kunde",mehr:"Neues Ersatzteil"}[UI.view]);
+    $("#fab").hidden = true; $("#btnAdd").hidden = !!UI.sel;
+    $("#btnAdd").setAttribute("aria-label", {home:"Neu anlegen",auftraege:"Neuer Auftrag",kalender:"Neuer Termin",rechnungen:UI.docSeg==="ausgaben"?"Beleg erfassen":"Neues Dokument",kunden:"Neuer Kunde",mehr:"Neues Ersatzteil"}[UI.view]);
     const m = $("#main"); const keep = document.activeElement?.id; const sel = keep && document.activeElement.selectionStart;
-    m.innerHTML = `<div class="view">${({auftraege:vAuftraege,kalender:vKalender,rechnungen:vRechnungen,kunden:vKunden,mehr:vMehr})[UI.view]()}</div>`;
+    m.innerHTML = `<div class="view">${lhead()}${({home:vHome,auftraege:vAuftraege,kalender:vKalender,rechnungen:vRechnungen,kunden:vKunden,mehr:vMehr})[UI.view]()}</div>`;
     if(UI.enterDir){ const d=UI.enterDir; UI.enterDir=0; animateEnter($("#main .view"), d); }
     if(keep==="q"){ const q=$("#q"); if(q){ q.focus(); try{q.setSelectionRange(sel,sel);}catch(e){} } }
     bindView();
   }
 
+  /* ---------- SpareSync-Designsystem: Icon-Badges (Lucide, MIT-Lizenz) ---------- */
+  const lu = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const LU = {
+    doc: lu('<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8M8 17h5"/>'),
+    euro: lu('<path d="M4 10h12M4 14h9"/><path d="M19 6a7.7 7.7 0 0 0-5.2-2A7.9 7.9 0 0 0 6 12c0 4.4 3.5 8 7.8 8 2 0 3.8-.8 5.2-2"/>'),
+    wrench: lu('<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'),
+    phone: lu('<rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/>'),
+    user: lu('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/>'),
+    scan: lu('<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M8 8h8M8 12h8M8 16h5"/>'),
+    alert: lu('<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4M12 17h.01"/>'),
+    trend: lu('<path d="M22 7 13.5 15.5 8.5 10.5 2 17"/><path d="M16 7h6v6"/>'),
+    clip: lu('<rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/>'),
+    building: lu('<rect x="4" y="2" width="16" height="20" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M12 6h.01M12 10h.01M12 14h.01M16 10h.01M16 14h.01M8 10h.01M8 14h.01"/>'),
+    text: lu('<path d="M17 6.1H3M21 12.1H3M15.1 18H3"/>'),
+    palette: lu('<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.56-2.5 5.56-5.55C21.97 6.01 17.46 2 12 2z"/>'),
+    box: lu('<path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>'),
+    shield: lu('<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>'),
+    table: lu('<path d="M12 3v18"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18"/>'),
+    moon: lu('<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>'),
+    hand: lu('<path d="M18 11V6a2 2 0 0 0-4 0v0M14 10V4a2 2 0 0 0-4 0v2M10 10.5V6a2 2 0 0 0-4 0v8"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>'),
+    help: lu('<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3M12 17h.01"/>'),
+    sparkle: lu('<path d="M9.94 14.06 7 22l-2.94-7.94L-3.88 11 4.06 8.06 7 0l2.94 8.06L17.88 11Z" transform="translate(4 1) scale(.85)"/>'),
+    receipt: lu('<path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8M12 17.5v-11"/>')
+  };
+  const CHEV = `<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>`;
+  const bdg = (c, icon) => `<span class="bdg ${c}">${icon}</span>`;
+  const JOB_C = {angenommen:"blue", reparatur:"amber", fertig:"green", abgeholt:"gray"};
+  const DOC_C = {entwurf:"amber", offen:"blue", versendet:"blue", bezahlt:"green", ueberfaellig:"red", storniert:"gray", akzeptiert:"green", abgelehnt:"red"};
+  /* Liste in einer Karte, gruppiert (z. B. nach Tag) */
+  function groupedList(items, keyOf, labelOf, rowOf){
+    let html="", last=undefined, open=false;
+    for(const it of items){ const k=keyOf(it); if(k!==last){ if(open) html+="</div>"; html+=`<div class="daylabel">${labelOf(k)}</div><div class="lgroup">`; open=true; last=k; } html+=rowOf(it); }
+    return html + (open?"</div>":"");
+  }
+  /* großer iOS-Titel oben in jeder Ansicht */
+  function lhead(){
+    if(UI.view==="kalender") return "";
+    const t = UI.view==="rechnungen" && UI.docSeg==="ausgaben" ? "Ausgaben" : titles[UI.view];
+    const eb = UI.view==="home" ? new Date().toLocaleDateString("de-DE",{weekday:"long",day:"numeric",month:"long"}) : "";
+    return `<div class="lhead">${eb?`<small>${esc(eb)}</small>`:""}<h1>${esc(t)}</h1></div>`;
+  }
+
+  /* ---------- Übersicht (Dashboard) ---------- */
+  function vHome(){
+    const t=today(), mon=t.slice(0,7), monName=MONTHS[+mon.slice(5)-1];
+    const invs=S.rechnungen.filter(r=>dTyp(r)==="rechnung");
+    const offen=invs.filter(r=>["offen","versendet","ueberfaellig"].includes(dStatus(r))), ueber=offen.filter(r=>dStatus(r)==="ueberfaellig");
+    const offenSum=offen.reduce((x,r)=>x+calc(r).brutto,0);
+    const umsatz=invs.filter(r=>r.nr && (r.datum||"").startsWith(mon) && !["entwurf","storniert"].includes(dStatus(r))).reduce((x,r)=>x+calc(r).brutto,0);
+    const aktiv=S.auftraege.filter(a=>["angenommen","reparatur"].includes(a.status)).length, abh=S.auftraege.filter(a=>a.status==="fertig").length;
+    const neuMon=S.auftraege.filter(a=>(a.created||"").startsWith(mon)).length;
+    const kpi=(go,c,icon,big,label,sub,warn)=>`<button class="kpi${warn?" warn":""}${String(big).length>4?" long":""}" data-go="${go}">${bdg(c,icon)}<b class="num">${big}</b><span>${label}</span><small>${sub}</small></button>`;
+    const qa=(act,c,icon,t1,t2)=>`<button class="qa" data-act="${act}">${bdg(c,icon)}<span><b>${t1}</b><small>${t2}</small></span></button>`;
+    const recent=[
+      ...S.auftraege.map(a=>({k:"job", d:a.updated||a.created||a.termin||"", o:a})),
+      ...S.rechnungen.map(r=>({k:"doc", d:r.updated||r.created||r.datum||"", o:r}))
+    ].sort((x,y)=>String(y.d).localeCompare(String(x.d))).slice(0,6);
+    const recRow=e=> e.k==="job" ? jobCard(e.o) : docCard(e.o, true);
+    return `<div class="kpis">
+        ${kpi("rechnungen:offen", ueber.length?"red":"blue", ueber.length?LU.alert:LU.doc, offen.length, "Offene Rechnungen", ueber.length?`${ueber.length} überfällig`:eur(offenSum), ueber.length>0)}
+        ${kpi("rechnungen:alle", "green", LU.trend, new Intl.NumberFormat("de-DE",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(umsatz), "Umsatz", `im ${monName}`)}
+        ${kpi("auftraege:offen", "indigo", LU.wrench, aktiv, "Offene Aufträge", abh?`${abh} abholbereit`:`${neuMon} neu im Monat`)}
+      </div>
+      <h2 class="sech">Schnellaktionen</h2>
+      <div class="qgrid">
+        ${qa("qaRechnung","blue",LU.doc,"Rechnung","erstellen")}
+        ${qa("qaAuftrag","indigo",LU.phone,"Auftrag","Gerät annehmen")}
+        ${qa("qaKunde","teal",LU.user,"Kunde","hinzufügen")}
+        ${qa("qaBeleg","amber",LU.scan,"Beleg scannen","Ausgabe per Foto")}
+      </div>
+      <h2 class="sech">Letzte Aktivitäten</h2>
+      ${recent.length?`<div class="lgroup">${recent.map(recRow).join("")}</div>`
+        :`<div class="lgroup"><div class="lrow static">${bdg("gray",LU.sparkle)}<span class="lmain"><b>Noch nichts los</b><small>Neue Aufträge und Rechnungen erscheinen hier.</small></span></div>${S.auftraege.length?"":`<button class="lrow" data-act="examples">${bdg("blue",LU.clip)}<span class="lmain"><b>Beispiel-Daten laden</b><small>Zum Ausprobieren, jederzeit löschbar</small></span>${CHEV}</button>`}</div>`}`;
+  }
+
   function jobCard(a){
     const t = a.termin ? `${deDate(a.termin)}${a.termin.length>10?", "+a.termin.slice(11,16):""}` : "";
-    return `<button class="card st-${a.status}" data-job="${a.id}">
-      <div class="row"><span class="mono jobnr">#${esc(a.nr)}</span><span class="pill s-${a.status}">${STATUS[a.status].l}</span></div>
-      <h3>${esc(a.geraet||"Gerät")}</h3>
-      <div class="meta"><span>${ico.user}${esc(kName(a.kundeId))}</span>${t?`<span>${ico.clock}${t}</span>`:""}${a.erledigt?`<span style="color:var(--green)">${ico.check}repariert ${deDate(a.erledigt)}</span>`:""}</div>
-      ${a.problem?`<div class="meta">${esc(a.problem.length>90?a.problem.slice(0,90)+"…":a.problem)}</div>`:""}
-    </button>`;
+    const k = kunde(a.kundeId);
+    return `<button class="lrow st-${a.status}" data-job="${a.id}">${bdg(JOB_C[a.status]||"gray", LU.phone)}
+      <span class="lmain"><b>${esc(k?k.name:(a.geraet||"Gerät"))}</b><small>${esc([k?(a.geraet||"Gerät"):"", "#"+a.nr, t].filter(Boolean).join(" · "))}</small></span>
+      <span class="lend"><span class="pill s-${a.status}">${STATUS[a.status].l}</span></span>${CHEV}</button>`;
   }
 
   function vAuftraege(){
@@ -425,8 +481,7 @@ export function startApp(){
       <div class="chips">${chips}</div>`;
     if(!list.length) return html + `<div class="empty">${emptyIcon("job",1)}<p>Keine Aufträge in dieser Ansicht.</p></div>`;
     let last=null;
-    for(const a of list){ const d=(a.termin||a.created||"").slice(0,10); if(d!==last){ html+=`<div class="daylabel">${d?longDate(d):"Ohne Termin"}</div>`; last=d; } html+=jobCard(a); }
-    return html;
+    return html + groupedList(list, a=>(a.termin||a.created||"").slice(0,10), d=>d?longDate(d):"Ohne Termin", jobCard);
   }
 
   /* ---------- animierte Leer-Ansichten (je Tab eigenes Motiv) ---------- */
@@ -545,12 +600,12 @@ export function startApp(){
         : `<div class="card calempty">${emptyIcon("cal",1)}<span style="color:var(--muted)">Nichts eingetragen.</span><button class="btn sm" data-act="newjobday">+ Termin an diesem Tag</button></div>`}</div>`;
   }
 
-  function docCard(r){
+  function docCard(r, noPick){
     const st=dStatus(r), t=dTyp(r);
-    const inner = `<div class="row"><span class="mono jobnr">${esc(shownNr(r))}</span><span class="pill s-${st}">${DST[st]}</span></div>
-      <div class="row"><h3>${esc(kName(r.kundeId))}</h3><strong class="num" style="font-size:17px">${eur(calc(r).brutto)}</strong></div>
-      <div class="meta">${t!=="rechnung"?`<span class="tag">${TYP[t].l}</span>`:""}<span>${ico.cal}${deDate(r.datum)}</span>${r.geraet?`<span>${ico.phone}${esc(r.geraet)}</span>`:""}</div>`;
-    return UI.sel?.kind==="rechnungen" && UI.view==="rechnungen" ? pickWrap("rechnungen", r.id, inner) : `<button class="card" data-doc="${r.id}">${inner}</button>`;
+    const inner = `${bdg(DOC_C[st]||"blue", t==="rechnung"?LU.doc:LU.clip)}
+      <span class="lmain"><b>${esc(kName(r.kundeId))}</b><small>${esc([shownNr(r), deDate(r.datum), t!=="rechnung"?TYP[t].l:"", r.geraet||""].filter(Boolean).join(" · "))}</small></span>
+      <span class="lend"><strong class="num">${eur(calc(r).brutto)}</strong><span class="pill s-${st}">${DST[st]}</span></span>`;
+    return !noPick && UI.sel?.kind==="rechnungen" && UI.view==="rechnungen" ? pickWrap("rechnungen", r.id, inner) : `<button class="lrow" data-doc="${r.id}">${inner}${CHEV}</button>`;
   }
   function vRechnungen(){
     const isR = UI.docSeg==="rechnungen";
@@ -570,11 +625,11 @@ export function startApp(){
     if(!all.length) return `${seg}${isR?hintHtml("rechnungen","<b>Rechnungen</b> erstellen Sie mit dem + oder direkt aus einem Auftrag. Firmendaten und Bankverbindung tragen Sie unter Einstellungen ein."):""}
       <div class="empty">${emptyIcon("doc")}<h2>${isR?"Noch keine Rechnungen":"Noch keine Angebote"}</h2><p>${isR?"Tippen Sie auf +, wählen Sie Kunde und Positionen, und sehen Sie sich das Blatt vor dem Erstellen in der Vorschau an.":"Angebote und Kostenvoranschläge erstellen Sie mit dem +. Wird ein Angebot angenommen, machen Sie mit einem Tipp eine Rechnung daraus."}</p>
       <div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newdoc">+ ${isR?"Rechnung":"Angebot"} erstellen</button>${isR?`<button class="btn ghost" data-act="importDocs">${ico.upl} Rechnungen importieren</button>`:""}</div></div>`;
-    const list = UI.selVis.rechnungen = all.filter(F[UI.docFilter]);
-    let html = `${seg}<div class="iobar"><span class="cnt">${all.length} ${isR?(all.length===1?"Rechnung":"Rechnungen"):(all.length===1?"Beleg":"Belege")}</span>${isR?`<button class="btn ghost sm" data-act="importDocs">${ico.upl} Importieren</button>`:""}<button class="btn ghost sm" data-act="exportDocs">${ico.dl} Exportieren ▾</button>${UI.sel?.kind==="rechnungen" ? `<button class="btn sm" data-act="selDone">Fertig</button>` : `<button class="btn ghost sm" data-act="selStart" data-kind="rechnungen">${ico.checkc} Auswählen</button>`}</div><div class="chips">${chips}</div>${tri}`, last=null;
+    const qq = UI.q.trim().toLowerCase();
+    const list = UI.selVis.rechnungen = all.filter(F[UI.docFilter]).filter(r => !qq || [kName(r.kundeId), r.nr, r.geraet, deDate(r.datum), ...(r.positionen||[]).map(p=>p.bez)].join(" ").toLowerCase().includes(qq));
+    let html = `${seg}<label class="search">${ico.search}<input id="q" type="search" placeholder="Kunde, Nummer, Gerät suchen…" value="${esc(UI.q)}"></label><div class="iobar"><span class="cnt">${all.length} ${isR?(all.length===1?"Rechnung":"Rechnungen"):(all.length===1?"Beleg":"Belege")}</span>${isR?`<button class="btn ghost sm" data-act="importDocs">${ico.upl} Import</button>`:""}<button class="btn ghost sm" data-act="exportDocs">${ico.dl} Export</button>${UI.sel?.kind==="rechnungen" ? `<button class="btn sm" data-act="selDone">Fertig</button>` : `<button class="btn ghost sm" data-act="selStart" data-kind="rechnungen">${ico.checkc} Auswählen</button>`}</div><div class="chips">${chips}</div>${tri}`, last=null;
     if(!list.length) return html + `<div class="empty">${emptyIcon("doc",1)}<p>Nichts in dieser Ansicht.</p></div>`;
-    for(const r of list){ if(r.datum!==last){ html+=`<div class="daylabel">${r.datum?longDate(r.datum):"Ohne Datum"}</div>`; last=r.datum; } html+=docCard(r); }
-    return html + selBar("rechnungen");
+    return html + groupedList(list, r=>r.datum||"", d=>d?longDate(d):"Ohne Datum", r=>docCard(r)) + selBar("rechnungen");
   }
 
   function vKunden(){
@@ -582,8 +637,10 @@ export function startApp(){
     const list = UI.selVis.kunden = [...S.kunden].sort((a,b)=>(a.name||"").localeCompare(b.name||"","de")).filter(k=>!q || [k.name,k.firma,k.tel,k.mail,k.ort,k.plz,kundenNr(k)].join(" ").toLowerCase().includes(q));
     if(!S.kunden.length) return `<div class="empty">${emptyIcon("user")}<h2>Noch keine Kunden</h2><p>Kunden legen Sie hier an, direkt beim Auftrag, oder Sie übernehmen Ihre Kontaktliste als CSV (z. B. aus sevdesk oder Excel).</p><div class="btnrow" style="justify-content:center"><button class="btn accent" data-act="newkunde">+ Kunde anlegen</button><button class="btn ghost" data-act="importKunden">${ico.upl} Kontakte importieren</button></div></div>`;
     return `${ioBar("kunden", S.kunden.length, "Kontakt", "Kontakte")}<label class="search">${ico.search}<input id="q" type="search" placeholder="Name, Nr., Ort, Telefon suchen…" value="${esc(UI.q)}"></label>
-      ${list.map(k=>{ const n=S.auftraege.filter(a=>a.kundeId===k.id).length; return pickWrap("kunden", k.id, `<div class="row"><h3><span class="mono jobnr" style="margin-right:8px">${esc(kundenNr(k))}</span>${esc(k.name)}</h3><span class="pill s-abgeholt">${n} Auftr${n===1?"ag":"äge"}</span></div>
-      <div class="meta">${k.firma&&k.firma!==k.name?`<span>${esc(k.firma)}</span>`:""}${k.tel?`<span>${ico.phone}${esc(k.tel)}</span>`:""}${k.ort?`<span>${k.land&&!/^(de|deutschland|germany)$/i.test(k.land)?esc(landCode(k.land))+"-":""}${esc(k.plz||"")} ${esc(k.ort)}</span>`:""}</div>`); }).join("")}${selBar("kunden")}${list.length||!q?"":`<div class="empty">${emptyIcon("user",1)}<p>Kein Kunde gefunden für „${esc(UI.q.trim())}“.</p></div>`}`;
+      <div class="lgroup">${list.map(k=>{ const n=S.auftraege.filter(a=>a.kundeId===k.id).length;
+        const ini=(k.name||"?").trim().split(/\s+/).slice(0,2).map(w=>w[0]).join("").toUpperCase();
+        const ortTxt=k.ort?`${k.land&&!/^(de|deutschland|germany)$/i.test(k.land)?landCode(k.land)+"-":""}${k.plz||""} ${k.ort}`.trim():"";
+        return pickWrap("kunden", k.id, `<span class="bdg blue ini">${esc(ini)}</span><span class="lmain"><b>${esc(k.name)}</b><small>${esc([kundenNr(k), k.firma&&k.firma!==k.name?k.firma:"", ortTxt||k.tel].filter(Boolean).join(" · "))}</small></span><span class="lend"><small class="cnt">${n?`${n} Auftr${n===1?"ag":"äge"}`:""}</small></span>`); }).join("")}</div>${selBar("kunden")}${list.length||!q?"":`<div class="empty">${emptyIcon("user",1)}<p>Kein Kunde gefunden für „${esc(UI.q.trim())}“.</p></div>`}`;
   }
 
   /* small layout thumbnails for the PDF-Design picker */
@@ -610,50 +667,53 @@ export function startApp(){
     const invs=S.rechnungen.filter(r=>dTyp(r)==="rechnung" && r.nr && dStatus(r)!=="entwurf");
     const years=[...new Set([String(new Date().getFullYear()), ...invs.map(r=>(r.datum||"").slice(0,4)).filter(Boolean), ...S.ausgaben.map(x=>(x.datum||"").slice(0,4)).filter(Boolean)])].sort().reverse();
     const csvCount=csvRows().length, ausCount=ausRowsFor(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : "")).length;
-    return `${accountGroup()}<div class="group"><span class="glabel">Firma &amp; Rechnung</span>
-      <button class="card" data-act="firma"><div class="row"><h3>Firmendaten, Bank, Logo</h3><span class="pill ${filled===5?"s-bezahlt":"s-versendet"}">${filled===5?"Vollständig":filled+" von 5"}</span></div>
-      <div class="meta">${f.name?esc(f.name)+(f.ort?" · "+esc(f.ort):""):"Erscheinen im Kopf und Fuß jeder Rechnung."}</div>
-      <div class="meta">${TAXM[firmaTaxMode(f)].t} · Zahlungsziel ${f.ziel??14} Tage${f.geminiApiKey?" · KI-Belegerkennung an":""}</div></button></div>
-
-      <div class="group" id="grpTexte"><span class="glabel">Textbausteine &amp; Hinweise</span>
-      <button class="card" data-act="texte"><div class="row"><h4>${ico.text}Standardtexte für Belege</h4><span class="pill ${texteSet?"s-bezahlt":"s-entwurf"}">${texteSet} von 3</span></div>
-      <div class="meta">Garantie-Hinweis für Rechnungen, Hinweis für Angebote &amp; KVA, Haftungsausschluss auf jedem Beleg.</div></button></div>
-
-      <div class="group" id="grpDesign"><span class="glabel">Design &amp; Layout</span>
-      <div class="card" style="gap:14px">
-        <div class="setrow"><span class="lbl">Erscheinungsbild der App</span>
-          <div class="seg">${[["light","Hell"],["dark","Dunkel"],["system","System"]].map(([k,l])=>`<button data-themeset="${k}" aria-pressed="${theme===k}">${l}</button>`).join("")}</div></div>
-        <div class="setrow"><span class="lbl">Akzentfarbe (Aktions-Buttons &amp; Belege)</span>
+    const acc=(id,c,icon,title,meta,inner)=>`<div class="acc${UI.mopen===id?" open":""}" id="${id}"><button class="lrow" data-acc="${id}" aria-expanded="${UI.mopen===id}">${bdg(c,icon)}<span class="lmain"><b>${title}</b>${meta?`<small>${meta}</small>`:""}</span>${CHEV}</button><div class="accbody">${inner}</div></div>`;
+    const nav=(act,c,icon,title,meta,end="")=>`<button class="lrow" data-act="${act}">${bdg(c,icon)}<span class="lmain"><b>${title}</b>${meta?`<small>${meta}</small>`:""}</span>${end?`<span class="lend">${end}</span>`:""}${CHEV}</button>`;
+    const themeL={light:"Hell",dark:"Dunkel",system:"Wie das System"}[theme];
+    return `${accountGroup()}
+      <div class="sgroup"><span class="glabel">Firma &amp; Vorlagen</span><div class="lgroup">
+        ${nav("firma","blue",LU.building,"Firmendaten", f.name?esc(f.name)+(f.ort?" · "+esc(f.ort):""):"Name, Adresse, Bank, Logo", `<span class="pill ${filled===5?"s-bezahlt":"s-versendet"}">${filled===5?"Vollständig":filled+" von 5"}</span>`)}
+        <div id="grpTexte">${nav("texte","indigo",LU.text,"Textbausteine", "Garantie, Angebote, Haftung", `<span class="pill ${texteSet?"s-bezahlt":"s-entwurf"}">${texteSet} von 3</span>`)}</div>
+        ${acc("grpDesign","violet",LU.palette,"Design &amp; PDF-Layout", `${LAYOUTS[lay].l} · ${ACCENTS[akz].l}`, `<div class="card" style="gap:14px">
+        <div class="setrow"><span class="lbl">Akzentfarbe der Belege (PDF)</span>
           <div class="swatches">${Object.entries(ACCENTS).map(([k,a])=>`<button class="sw" data-akzent="${k}" aria-pressed="${akz===k}"><i style="background:${a.c}"></i>${a.l}</button>`).join("")}</div></div>
         <div class="setrow"><span class="lbl">PDF-Design für Rechnungen &amp; Angebote</span>
           <div class="layouts">${Object.entries(LAYOUTS).map(([k,l])=>`<button class="lay" data-pdflayout="${k}" aria-pressed="${lay===k}">${layThumb(k)}<b>${l.l}</b><small>${l.d}</small></button>`).join("")}</div>
           <button class="linkbtn" data-act="pdfsample">${ico.preview} Beispiel-Blatt ansehen</button></div>
         <div class="lineform"><span><b style="font-weight:600">„BEZAHLT“-Stempel</b><br><small style="color:var(--muted)">Dezent auf bezahlten Rechnungen und im PDF</small></span><input type="checkbox" class="toggle" id="setStempel" ${f.stempel?"checked":""}></div>
+      </div>`)}
       </div></div>
-
-      <div class="group" id="grpTeile"><span class="glabel">Produkte, Ersatzteile &amp; Leistungen</span>
-      ${ioBar("teile", S.teile.length, "Produkt", "Produkte")}
+      <div class="sgroup"><span class="glabel">Datenverwaltung</span><div class="lgroup">
+        ${acc("grpTeile","amber",LU.box,"Produkte &amp; Leistungen", `${S.teile.length} ${S.teile.length===1?"Eintrag":"Einträge"}`, `<div class="accpad">    ${ioBar("teile", S.teile.length, "Produkt", "Produkte")}
       ${teile.length? `<div class="box">${teile.map(t=>`<button class="kv${isPicked("teile",t.id)?" picked":""}" style="width:100%;background:none;border-left:0;border-right:0;border-bottom:0;text-align:left" ${UI.sel?.kind==="teile"?`data-pick="${t.id}"`:`data-teil="${t.id}"`}><span style="color:var(--fg);font-weight:600;display:flex;align-items:center;gap:10px;min-width:0">${UI.sel?.kind==="teile"?pickCircle():""}<span style="min-width:0">${t.artnr?`<span class="mono" style="color:var(--faint);margin-right:6px">${esc(t.artnr)}</span>`:""}${esc(t.bez)}${t.kategorie==="Dienstleistung"?` <span class="tag">Leistung</span>`:""}</span></span><span class="num">${eur(t.preis)}${t.kategorie==="Dienstleistung"?"":` · <span style="color:${(+t.bestand||0)<=1?"var(--red)":"var(--muted)"}">${+t.bestand||0} ${esc(t.einheit||"Stk.")}</span>`}</span></button>`).join("")}</div>${selBar("teile")}`
         : `<div class="card"><span style="color:var(--muted)">Legen Sie häufige Teile an (Display, Akku, Ladebuchse). Beim Auftrag und in der Rechnung wählen Sie sie dann mit einem Tipp aus, und der Bestand zählt mit.</span></div>`}
-      <div class="btnrow"><button class="btn ghost" data-act="newteil">+ Produkt anlegen</button>${teile.length?"":`<button class="btn ghost" data-act="importTeile">${ico.upl} Produkte importieren</button>`}</div></div>
-
-      <div class="group" id="grpBackup"><span class="glabel">Datensicherung &amp; Backup</span>
+      <div class="btnrow"><button class="btn ghost" data-act="newteil">+ Produkt anlegen</button>${teile.length?"":`<button class="btn ghost" data-act="importTeile">${ico.upl} Produkte importieren</button>`}</div></div>`)}
+        ${acc("grpBackup","green",LU.shield,"Datensicherung &amp; Backup", "Alles in einer Datei sichern", `
         <div class="card"><span style="color:var(--muted)">Sichert Firmendaten, Kunden, Aufträge, Rechnungen, Angebote, Ersatzteile und Ausgaben samt Belegfotos in einer Datei. Am besten regelmäßig herunterladen und z. B. in iCloud Drive ablegen.</span>
           <div class="btnrow"><button class="btn" data-act="backupExport">${ico.dl}Backup herunterladen</button><button class="btn ghost" data-act="backupImport">Backup wiederherstellen</button></div>
           <input type="file" id="backupFile" accept="application/json,.json" hidden>
           ${UI.pendingImport?`<div class="confirm"><span><b>Backup vom ${esc(deStamp(UI.pendingImport.exportiert)||"unbekannten Datum")} wiederherstellen?</b><br>${UI.pendingImport.kunden.length} Kunden, ${UI.pendingImport.auftraege.length} Aufträge, ${UI.pendingImport.rechnungen.length} Rechnungen/Angebote, ${UI.pendingImport.teile.length} Ersatzteile, ${UI.pendingImport.ausgaben.length} Ausgaben. Ihre aktuellen Daten werden dabei vollständig ersetzt.</span>
             <div class="btnrow"><button class="btn danger" data-act="backupApply">Ja, wiederherstellen</button><button class="btn ghost" data-act="backupCancel">Abbrechen</button></div></div>`:""}
         </div>
-        <div class="card"><h4>${ico.table}Buchhaltung (CSV-Export)</h4>
+  `)}
+        ${acc("grpCsv","teal",LU.table,"Buchhaltung (CSV / DATEV)", "Für den Steuerberater", `      <div class="card">
           <span style="color:var(--muted)">Rechnungen und Ausgaben eines Zeitraums als Tabellen für den Steuerberater. Öffnet sich in Excel, Numbers und DATEV-Importen.</span>
           <div class="csvrow"><select id="csvYear" class="input" aria-label="Jahr">${years.map(y=>`<option ${UI.csvYear===y?"selected":""}>${y}</option>`).join("")}</select>
             <select id="csvMonth" class="input" aria-label="Monat"><option value="">Ganzes Jahr</option>${MONTHS.map((n,i)=>`<option value="${pad(i+1)}" ${UI.csvMonth===pad(i+1)?"selected":""}>${n}</option>`).join("")}</select></div>
           <div class="exrow"><span><b>Rechnungen</b><small>${csvCount} im Zeitraum · Netto, MwSt., Brutto</small></span><button class="btn sm" data-act="csvExport" ${csvCount?"":"disabled"}>${ico.dl}CSV</button></div>
           <div class="exrow"><span><b>Ausgaben</b><small>${ausCount} im Zeitraum · Netto, Vorsteuer, Brutto</small></span><button class="btn sm" data-act="csvAus" ${ausCount?"":"disabled"}>${ico.dl}CSV</button></div>
           <div class="exrow"><span><b>Komplettpaket (ZIP)</b><small>Beide Tabellen plus alle Belegfotos und PDFs</small></span><button class="btn sm accent" data-act="paket" ${csvCount||ausCount?"":"disabled"}>${ico.dl}ZIP</button></div>
-        </div></div>
-      <div class="card"><h4>${ico.check}Bedienung</h4>
-        <div class="exrow"><span><b>Schütteln zum Rückgängigmachen</b><small>${shakeInfo()}</small></span>${shakeBtn()}</div></div>
+        </div>`)}
+      </div></div>
+      <div class="sgroup"><span class="glabel">App-Einstellungen</span><div class="lgroup">
+        ${acc("grpLook","gray",LU.moon,"Erscheinungsbild", themeL, `<div class="card"><div class="setrow"><span class="lbl">Erscheinungsbild der App</span>
+          <div class="seg">${[["light","Hell"],["dark","Dunkel"],["system","System"]].map(([k,l])=>`<button data-themeset="${k}" aria-pressed="${theme===k}">${l}</button>`).join("")}</div></div>
+        </div>`)}
+        ${acc("grpBedienung","gray",LU.hand,"Bedienung", "Schütteln zum Rückgängigmachen", `<div class="card">
+        <div class="exrow"><span><b>Schütteln zum Rückgängigmachen</b><small>${shakeInfo()}</small></span>${shakeBtn()}</div></div>`)}
+        ${nav("tour","blue",LU.help,"Tour-Hilfe", "Kurze Einführung in die App")}
+        ${S.auftraege.length?"":nav("examples","amber",LU.sparkle,"Beispiel-Daten laden","Zum Ausprobieren")}
+      </div></div>
       <p class="syncnote">${mode==="db"?"Gespeichert in Ihrem Konto – privat, auf allen Geräten gleich.":"Gespeichert in diesem Browser."}<br><small style="opacity:.7">WerkDoc · App-Stand ${APP_VER}</small></p>`;
   }
 
@@ -676,6 +736,10 @@ export function startApp(){
       if(LP?.fired){ LP=null; e.preventDefault(); return; }
       const t=e.target.closest("button"); if(!t) return;
       if(t.dataset.hint){ hidden[t.dataset.hint]=1; try{localStorage.setItem("rm-hints",JSON.stringify(hidden));}catch(e){} render(); return; }
+      if(t.dataset.go){ const [v,f]=t.dataset.go.split(":"); if(v==="rechnungen"){ UI.docSeg="rechnungen"; UI.docFilter=f||"alle"; } else UI.filter=f||"offen"; switchView(v); return; }
+      if(t.dataset.acc){ const id=t.dataset.acc, box=t.closest(".acc"), on=!box.classList.contains("open"); UI.mopen=on?id:null;
+        $$("#main .acc.open").forEach(b=>{ if(b!==box){ b.classList.remove("open"); b.querySelector("[data-acc]").setAttribute("aria-expanded","false"); } });
+        box.classList.toggle("open", on); t.setAttribute("aria-expanded", String(on)); if(on) setTimeout(()=>box.scrollIntoView({block:"nearest", behavior:reducedMotion()?"auto":"smooth"}), 60); return; }
       if(t.dataset.f){ UI.filter=t.dataset.f; render(); return; }
       if(t.dataset.df){ UI.docFilter=t.dataset.df; render(); return; }
       if(t.dataset.seg){ UI.docSeg=t.dataset.seg; UI.docFilter="alle"; if(UI.sel?.kind==="rechnungen") UI.sel=null; render(); return; }
@@ -701,6 +765,8 @@ export function startApp(){
       if(a==="examples") loadExamples(); if(a==="newdoc") openDocEditor({typ:UI.docSeg==="angebote"?"angebot":"rechnung"});
       if(a==="newkunde") openKunde(); if(a==="firma") openFirma(); if(a==="newteil") openTeil();
       if(a==="texte") openTexte();
+      if(a==="qaRechnung") openDocEditor({typ:"rechnung"}); if(a==="qaAuftrag") openAuftrag(); if(a==="qaKunde") openKunde(); if(a==="qaBeleg") newAusgabe();
+      if(a==="tour") startTour(UI.lastTab||"home");
       if(a==="shakeOn"){ shakeEnable().then(ok=>{ toast(ok?"Schütteln zum Rückgängigmachen ist an":"Bewegungssensor nicht freigegeben"); render(); }); return; }
       if(a==="shakeOff"){ shakeDisable(); toast("Schütteln ist aus"); render(); return; }
       if(a==="selStart"){ UI.sel={kind:t.dataset.kind, ids:new Set(), confirm:false}; render(); return; }
@@ -708,10 +774,7 @@ export function startApp(){
       if(a==="selAll" && UI.sel){ const vis=UI.selVis[UI.sel.kind].map(x=>x.id); const all=vis.length && vis.every(id=>UI.sel.ids.has(id)); UI.sel.ids = all ? new Set() : new Set(vis); UI.sel.confirm=false; render(); return; }
       if(a==="selDel" && UI.sel?.ids.size){ UI.sel.confirm=true; render(); return; }
       if(a==="selNo" && UI.sel){ UI.sel.confirm=false; render(); return; }
-      if(a==="selYes" && UI.sel){ const {kind}=UI.sel; let ids=[...UI.sel.ids]; UI.sel=null;
-        const kept = kind==="rechnungen" ? ids.filter(id=>{ const r=S.rechnungen.find(x=>x.id===id); return r && docLocked(r); }) : [];
-        ids=ids.filter(id=>!kept.includes(id)); if(ids.length) removeMany(kind,ids); else render();
-        toast(`${ids.length} ${selWord(kind,ids.length)} gelöscht${kept.length?` · ${kept.length} erstellte Rechnung${kept.length===1?"":"en"} bleib${kept.length===1?"t":"en"} erhalten`:""}`); return; }
+      if(a==="selYes" && UI.sel){ const {kind, ids}=UI.sel; const n=ids.size; UI.sel=null; removeMany(kind,[...ids]); toast(`${n} ${selWord(kind,n)} gelöscht`); return; }
       if(a==="selStorno" && UI.sel){ const ids=UI.sel.ids; UI.sel=null; const list=S.rechnungen.filter(r=>ids.has(r.id) && dTyp(r)==="rechnung" && r.nr && !["entwurf","storniert"].includes(dStatus(r)));
         const upd=list.map(r=>({...r, status:"storniert", verlauf:[...(r.verlauf||[]), {t:nowStamp(), e:"Status: Storniert"}]})); delete upd.bezahlt;
         upd.forEach(o=>upsertLocal("rechnungen",o)); lsSave(); render();
@@ -822,12 +885,10 @@ export function startApp(){
   $("#vClose").onclick=closeViewer; $("#vIn").onclick=()=>zoomViewer(1); $("#vOut").onclick=()=>zoomViewer(-1);
 
   /* ---------- position editor (shared) ---------- */
-  let POS_IMEI="";   // IMEI des Belegs im Editor (für die Zeile „Serien-/IMEI-Nr.“ bei neuen Ersatzteil-Positionen)
   function einhOpts(sel){ const s=sel||"Stk."; const list=EINH.some(e=>e[0]===s)?EINH:[...EINH,[s,s]]; return list.map(([k,l])=>`<option value="${esc(k)}" ${k===s?"selected":""}>${esc(l)} (${esc(k)})</option>`).join(""); }
   function posRow(p={}){
     return `<div class="pcard" ${p.teilId?`data-teil="${p.teilId}"`:""}>
       <div class="prow1"><input class="pt" placeholder="Titel der Position" value="${esc(p.bez)}" aria-label="Titel der Position"><button class="x" type="button" aria-label="Position entfernen">×</button></div>
-      <textarea class="pd" rows="${String(p.text||"").split("\n").length>1?2:1}" placeholder="Beschreibung unter dem Titel (optional)" aria-label="Beschreibung der Position">${esc(p.text||"")}</textarea>
       <div class="prow2"><label>Menge<input class="pm r" inputmode="decimal" value="${numIn(p.menge??1)}"></label><label>Einheit<select class="pe">${einhOpts(p.einheit)}</select></label><label><span class="pplbl">${priceLabel()}</span><input class="pp r" inputmode="decimal" placeholder="0,00" value="${numIn(p.preis)}"></label></div>
       <div class="ptot">${eur((+p.menge||0)*(+p.preis||0))}</div><div class="ptax tm-${posTax().m}">${posTaxNote((+p.menge||0)*(+p.preis||0))}</div></div>`;
   }
@@ -849,16 +910,11 @@ export function startApp(){
     const add=p=>{ rows.insertAdjacentHTML("beforeend",posRow(p)); upd(); };
     $("#addPos").onclick=()=>{ add({menge:1,einheit:"Stk."}); rows.lastElementChild.querySelector(".pt").focus(); };
     $("#addLabor").onclick=()=>add({bez:"Arbeitszeit / Reparatur", menge:1, einheit:"psch.", preis:S.firma.pauschale??39});
-    // Ersatzteil = Reparatur zum Festpreis – gleiches Muster wie auf der Website (rechnungPdf.js)
-    const at=$("#addTeil"); if(at) at.onchange=()=>{ const t=S.teile.find(x=>x.id===at.value); if(t){
-      const imei=($("#fImei")?.value ?? POS_IMEI ?? "").trim(), dienst=t.kategorie==="Dienstleistung";
-      add(dienst ? {bez:t.bez, menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}
-        : {bez:positionsTitel(t.bez,"",""), text:positionsText(t.garantie||S.firma.garantie||GARANTIE_STANDARD, imei), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); }
-      at.value=""; };
+    const at=$("#addTeil"); if(at) at.onchange=()=>{ const t=S.teile.find(x=>x.id===at.value); if(t) add({bez:t.bez+(t.artnr?` (${t.artnr})`:""), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); at.value=""; };
     rows.oninput=upd; rows.onchange=upd;
     rows.onclick=e=>{ if(e.target.classList.contains("x")){ e.target.closest(".pcard").remove(); upd(); } };
   }
-  function readPos(){ return $$("#posRows .pcard").map(r=>{ const tx=($(".pd",r)?.value||"").trim(); return {bez:$(".pt",r).value.trim(), ...(tx?{text:tx}:{}), menge:parseNum($(".pm",r).value), einheit:$(".pe",r).value, preis:parseNum($(".pp",r).value), ...(r.dataset.teil?{teilId:r.dataset.teil}:{})}; }).filter(p=>p.bez||p.preis); }
+  function readPos(){ return $$("#posRows .pcard").map(r=>({bez:$(".pt",r).value.trim(), menge:parseNum($(".pm",r).value), einheit:$(".pe",r).value, preis:parseNum($(".pp",r).value), ...(r.dataset.teil?{teilId:r.dataset.teil}:{})})).filter(p=>p.bez||p.preis); }
 
   function kundeSelect(sel, idp){
     const kOpts = [...S.kunden].sort((x,y)=>x.name.localeCompare(y.name,"de")).map(k=>`<option value="${k.id}" ${sel===k.id?"selected":""}>${esc(k.name)}</option>`).join("");
@@ -944,7 +1000,7 @@ export function startApp(){
       <div class="group"><span class="glabel">Positionen</span><div class="box">
         ${(a.positionen||[]).map(p=>`<div class="kv"><span style="color:var(--fg)">${numIn(p.menge)} ${esc(p.einheit||"Stk.")} · ${esc(p.bez)}</span><span class="num">${eur(p.menge*p.preis)}</span></div>`).join("") || `<div class="kv"><span>Noch keine Positionen</span><span></span></div>`}
         <div class="total"><span>Summe</span><span class="num">${eur(sumPos(a.positionen))}</span></div></div></div>
-      ${docs.length?`<div class="group"><span class="glabel">Dokumente zu diesem Auftrag</span>${docs.map(docCard).join("")}</div>`:""}
+      ${docs.length?`<div class="group"><span class="glabel">Dokumente zu diesem Auftrag</span><div class="lgroup">${docs.map(r=>docCard(r,true)).join("")}</div></div>`:""}
       ${jobAusHtml(a)}
       ${msgButtons(a,k)}
       <div class="btnrow">
@@ -989,7 +1045,7 @@ export function startApp(){
     return d;
   }
   function renderEditor(d, isEdit){
-    const T=TYP[d.typ]; POS_TAX={m:docTaxMode(d), p:dKu(d)?0:(d.mwst??19)}; POS_IMEI=d.imei||"";
+    const T=TYP[d.typ]; POS_TAX={m:docTaxMode(d), p:dKu(d)?0:(d.mwst??19)};
     const jobs=S.auftraege.filter(a=>!d.kundeId || a.kundeId===d.kundeId).sort((x,y)=>(y.created||"").localeCompare(x.created||""));
     const jOpts=jobs.map(a=>`<option value="${a.id}" ${d.auftragId===a.id?"selected":""}>#${esc(a.nr)} · ${esc(a.geraet)}</option>`).join("");
     const title = isEdit ? `${T.l} bearbeiten` : ({rechnung:"Neue Rechnung", angebot:"Neues Angebot", kva:"Neuer Kostenvoranschlag"})[d.typ];
@@ -1050,18 +1106,14 @@ export function startApp(){
       renderEditor(d,isEdit); });
     $("#eKunde").onchange=()=>{ collectEditor(d); keepK(); renderEditor(d,isEdit); };
     $("#eAuftrag").onchange=()=>{ collectEditor(d); keepK(); const a=S.auftraege.find(x=>x.id===d.auftragId); if(a){ d.kundeId=a.kundeId||d.kundeId; d.geraet=a.geraet; d.imei=a.imei||""; d.leistung=a.erledigt||d.leistung; if(!d.positionen.length) d.positionen=(a.positionen||[]).map(p=>({einheit:"Stk.",...p})); } renderEditor(d,isEdit); };
-    const finish=async(make)=>{
+    const finish=(make)=>{
       collectEditor(d);
       if(d._kErr){ toast(d._kErr); return; }
       if(make){ if(!d.kundeId){ toast("Bitte einen Kunden wählen"); $("#eKunde").focus(); return; } if(!d.positionen.length){ toast("Bitte mindestens eine Position eintragen"); return; } }
-      let nr="";
-      if(make){ const b=$("#eMake"); if(b) b.disabled=true;
-        try{ nr=await reserveNr(d.typ); }
-        catch(e){ if(b) b.disabled=false; make=false; toast(navigator.onLine===false || /offline/.test(e?.message||"") ? "Keine Internetverbindung – die Nummer wird online vergeben. Als Entwurf gespeichert." : "Nummer konnte nicht vergeben werden – als Entwurf gespeichert. Bitte später erneut erstellen."); } }
       if(d._kundeNeu) save("kunden", d._kundeNeu);
       const out={...d}; delete out._kundeNeu; delete out._kErr; delete out.bezahlt; delete out.kleinunternehmer;
       if(make){
-        out.nr=nr; out.status="offen"; out.verlauf=[...(out.verlauf||[]), {t:nowStamp(), e:"Erstellt"}];
+        out.nr=nextNr(out.typ); out.status="offen"; out.verlauf=[...(out.verlauf||[]), {t:nowStamp(), e:"Erstellt"}];
         if(out.typ==="rechnung") for(const p of out.positionen) if(p.teilId){ const t=S.teile.find(x=>x.id===p.teilId); if(t && t.kategorie!=="Dienstleistung") save("teile",{...t,bestand:Math.max(0,(+t.bestand||0)-(+p.menge||0))}); }
         if(out.ausDoc){ const src=S.rechnungen.find(x=>x.id===out.ausDoc); if(src && dStatus(src)!=="akzeptiert") save("rechnungen",{...src,status:"akzeptiert",verlauf:[...(src.verlauf||[]),{t:nowStamp(),e:`In Rechnung ${out.nr} übernommen`}]}); }
       } else if(!out.verlauf.length) out.verlauf=[{t:nowStamp(), e:"Entwurf angelegt"}];
@@ -1113,8 +1165,7 @@ export function startApp(){
         <div class="btnrow"><button class="btn soft" id="dPdf">${ico.share} PDF speichern / teilen</button></div>
         <div id="dThumb" style="margin-top:6px">${paperBox(r)}</div>
         <span style="color:var(--muted)">Zum Vergrößern auf das Blatt tippen.</span></div>
-      ${docLocked(r) ? `<div class="hint"><span><b>Erstellte Rechnungen lassen sich nicht löschen.</b> Zum Korrigieren den Status „Storniert“ setzen und eine neue Rechnung erstellen – die stornierte bleibt zur Nachweisführung erhalten (10 Jahre).</span></div>`
-        : `<button class="btn danger" id="dDel">${st==="entwurf"?"Entwurf löschen":"Löschen"}</button>`}<div id="delConfirm"></div>
+      <button class="btn danger" id="dDel">${st==="entwurf"?"Entwurf löschen":"Löschen"}</button><div id="delConfirm"></div>
     `, null, "", { cancelLabel:"Zurück", foot: st==="entwurf"
         ? `<button class="btn accent wide" id="dMake">${T.make}</button>`
         : `<button class="btn ghost wide" id="dStatus">${ico.sync} Status ändern</button>` });
@@ -1135,7 +1186,7 @@ export function startApp(){
       const subs = {offen:"Erstellt, noch nicht verschickt", versendet:"An den Kunden geschickt", bezahlt:"Geld ist eingegangen (heute)", storniert:"Rechnung ungültig, bleibt zur Nachweisführung erhalten", akzeptiert:"Kunde hat zugesagt", abgelehnt:"Kunde hat abgesagt"};
       openPicker("Status ändern", opts.filter(s=>s!==(r.status||"offen")).map(s=>({label:DST[s], sub:subs[s], pill:s, value:s})), o=>setDocStatus(r,o.value));
     };
-    const dl=$("#dDel"); if(dl) dl.onclick=()=>confirmBox(st==="entwurf"?"Diesen Entwurf löschen?":`${T.l} ${esc(r.nr)} wirklich löschen?`, ()=>{ remove("rechnungen",r.id); closeSheet(); toast("Gelöscht"); });
+    $("#dDel").onclick=()=>confirmBox(st==="entwurf"?"Diesen Entwurf löschen?":`${T.l} ${esc(r.nr)} wirklich löschen? Bei verschickten Rechnungen besser den Status „Storniert“ setzen.`, ()=>{ remove("rechnungen",r.id); closeSheet(); toast("Gelöscht"); });
   }
   function setDocStatus(r, s){
     const o={...r, status:s, verlauf:[...(r.verlauf||[]), {t:nowStamp(), e:`Status: ${DST[s]}`}]};
@@ -1200,7 +1251,7 @@ export function startApp(){
     const title=`<div class="title">${T.up} ${nrHtml}</div>`;
     const sub=r.geraet?`<div class="sub">Gerät: ${e(r.geraet)}${r.imei?` · IMEI/SN ${e(r.imei)}`:""}</div>`:"";
     const intro=`<div class="intro">${e(X.anrede)}<br>${X.intro}</div>`;
-    const row=(p,i)=>`<tr><td>${i}</td><td>${e(p.bez)}${p.text?`<br><small>${e(p.text).replace(/\n/g,"<br>")}</small>`:""}</td><td class="r">${numIn(p.menge)}</td><td class="c">${e(p.einheit||"Stk.")}</td><td class="r">${eur(p.preis)}</td><td class="r"><b>${eur(p.menge*p.preis)}</b></td></tr>`;
+    const row=(p,i)=>`<tr><td>${i}</td><td>${e(p.bez)}</td><td class="r">${numIn(p.menge)}</td><td class="c">${e(p.einheit||"Stk.")}</td><td class="r">${eur(p.preis)}</td><td class="r"><b>${eur(p.menge*p.preis)}</b></td></tr>`;
     const thead=`<thead><tr><th style="width:44px">Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="c">Einheit</th><th class="r">Einzelpreis</th><th class="r">Gesamt</th></tr></thead>`;
     const empty=`<tr><td colspan="6" style="color:var(--ink-2)">Noch keine Positionen</td></tr>`;
     let rows;
@@ -1211,7 +1262,7 @@ export function startApp(){
     } else rows=r.positionen.length?r.positionen.map((p,i)=>row(p,i+1)).join(""):empty;
     const table=`<div class="tbl"><table>${thead}<tbody>${rows}</tbody></table></div>`;
     const sum=`<div class="sum">${c.rab?`<div><span>Summe Positionen</span><span>${eur(c.sum)}</span></div><div><span>Rabatt (${numIn(r.rabatt)} %)</span><span>− ${eur(c.rab)}</span></div>`:""}${c.p?`<div><span>Zwischensumme (netto)</span><span>${eur(c.netto)}</span></div><div><span>MwSt. (${numIn(c.p)} %)</span><span>${eur(c.mwst)}</span></div>`:""}<div class="g"><span>${c.p?"Gesamtbetrag (brutto)":"Gesamtbetrag"}</span><span>${eur(c.brutto)}</span></div></div>`;
-    const note=`<div class="note">${garantieHinweis(r.positionen)?e(garantieHinweis(r.positionen))+"<br>":""}${X.klein?"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.<br>":""}${noteBody(X,r)}</div>`;
+    const note=`<div class="note">${X.klein?"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.<br>":""}${noteBody(X,r)}</div>`;
     const greet=`<div class="greet">Mit freundlichen Grüßen<b>${e(f.name||"")}</b></div>`;
     const haft=sigPaper(r)+(f.haftung?`<div class="haft">${e(f.haftung).replace(/\n/g,"<br>")}</div>`:"");
     const foot=`<div class="foot"><div>${e(f.name)}<br>${br(D.firm)}</div><div>${f.bank?e(f.bank)+"<br>":""}${f.iban?"IBAN "+e(f.iban)+"<br>":""}${f.bic?"BIC "+e(f.bic):""}</div><div>${f.tel?"Tel. "+e(f.tel)+"<br>":""}${f.stnr?"Steuernr. "+e(f.stnr)+"<br>":""}${f.ustid?"USt-IdNr. "+e(f.ustid):""}</div></div>`;
@@ -1220,30 +1271,26 @@ export function startApp(){
     const body=(withSub=true)=>`${withSub?sub:""}${intro}${table}${sum}${note}${greet}<div class="spacer"></div>${haft}`;
     const devbox = (D.devItems.length||D.problem) ? `<div class="devbox"><div class="dv-grid">${D.devItems.map(([a,b])=>`<div><label>${a}</label><b>${e(b)}</b></div>`).join("")}</div>${D.problem?`<div class="dv-prob"><label>Fehlerbeschreibung</label>${e(D.problem)}</div>`:""}</div>` : "";
 
-    if(lay==="neutral"){ const B=neutralDaten(r,D), s=B.summen, N=neutralData(r,D);   // gleicher Aufbau wie rechnungPdf.js
-      const z2=n=>new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2}).format(+n||0), ein=u=>String(u||"Stk.").replace(/^(Stk|Std)\.$/,"$1");
-      const prow=(p,i)=>`<tr><td>${i+1}.</td><td><b>${e(p.bez)}</b>${p.text?`<br>${e(p.text).replace(/\n/g,"<br>")}`:""}</td><td class="r">${z2(p.menge)} ${e(ein(p.einheit))}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
-      const srow=(a,b,cls="")=>`<tr class="${cls}"><td></td><td colspan="3">${a}</td><td class="r">${b}</td></tr>`;
-      const tax = s.mwst ? srow(`zzgl. Umsatzsteuer ${numIn(s.mwstSatz)} %`, eurTxt(s.mwst)) : srow(s.ku?"Umsatzsteuer nicht erhoben gemäß §19UStG.":"Umsatzsteuer 0 %", "");
-      const meta=list=>list.filter(m=>m&&m[1]).map(([a,b])=>`<span>${e(a)}</span><span class="r">${e(b)}</span>`).join("");
-      const m2=meta(B.meta2);
+    if(lay==="neutral"){ const N=neutralData(r,D);
+      const prow=(p,i)=>`<tr><td><div class="dd"><span class="n">${i+1}.</span><span class="d">${e(p.bez)}</span></div></td><td class="r">${qtyTxt(p.menge)} ${e(p.einheit||"Stk.")}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
+      const srow=(a,b,cls="")=>`<tr class="${cls}"><td colspan="3">${a}</td><td class="r">${b}</td></tr>`;
+      const tax = c.p ? srow(`zzgl. Umsatzsteuer ${numIn(c.p)} %`, eurTxt(c.mwst)) : srow(dKu(r)?"Umsatzsteuer nicht erhoben gemäß § 19 UStG.":"Umsatzsteuer 0 %", "");
+      const cols=[[["",f.name],["",f.strasse],["",[f.plz,f.ort].filter(Boolean).join(" ")]],[["Tel",f.tel],["Mail",f.mail]],[["Bank",f.bank],["IBAN",f.iban],["BIC",f.bic]],[["St.-Nr.",f.stnr],["USt-ID",f.ustid]]]
+        .map(cl=>cl.filter(x=>x[1])).filter(cl=>cl.length);
       return `<div class="paper lay-neutral">${stamp}
         <div class="nt-logo">${logo}</div>
-        <div class="nt-head"><div><div class="nt-sender">${e([f.name,f.strasse,[f.plz,f.ort].filter(Boolean).join(" ")].filter(Boolean).join("  -  "))}</div><div class="addr">${br(B.empfaenger)}</div></div>
-          <div class="nt-meta"><div class="nt-nr"><span>${e(B.nrLabel)}</span><span class="r">${nrHtml}</span></div><div class="nt-mg">${meta(B.meta1)}</div>${m2?`<div class="nt-mg">${m2}</div>`:""}</div></div>
-        <div class="nt-title"><b>${e(T.l)} Nr. ${nrHtml}</b></div>
-        <div class="nt-sub">${B.unterzeile.filter(Boolean).map(e).join("<br>")}</div>
-        <table class="nt-tbl"><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
-          <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td></td><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
-          <tbody class="nt-sum">${s.rabatt?srow("Summe Positionen",eurTxt(s.summe))+srow(`Rabatt (${numIn(s.rabattSatz)} %)`,"− "+eurTxt(s.rabatt)):""}${srow("Gesamtbetrag netto",eurTxt(s.netto),"g")}${tax}${srow("<b>Gesamtbetrag brutto</b>",`<b>${eurTxt(s.brutto)}</b>`,"g")}</tbody></table>
-        ${garantieHinweis(B.positionen)?`<div class="nt-text">${e(garantieHinweis(B.positionen))}</div>`:""}
-        ${B.girocode ? (()=>{ const g=B.girocode, m=qrMatrix(giroCodeText(g)); let p=""; for(let y=0;y<m.n;y++) for(let x=0;x<m.n;x++) if(m.dark(y,x)) p+=`M${x} ${y}h1v1h-1z`;
-          return `<div class="nt-giro"><figure><svg viewBox="0 0 ${m.n} ${m.n}" shape-rendering="crispEdges"><path d="${p}"/></svg><figcaption>GiroCode<br>mit der Banking-App scannen</figcaption></figure>
-            <div><b>Bezahlen per Überweisung</b>${[["Empfänger",g.name],["IBAN",String(g.iban).replace(/\s+/g,"").replace(/(.{4})/g,"$1 ").trim()],["BIC",g.bic],["Betrag",eurTxt(g.betrag)],["Verwendungszweck",g.zweck]].filter(x=>x[1]).map(([a,b])=>`<span>${e(a)}</span><span>${e(b)}</span>`).join("")}</div></div>`; })() : ""}
-        ${B.texte.filter(Boolean).map(t=>`<div class="nt-text">${e(t).replace(/\n/g,"<br>")}</div>`).join("")}
+        <div class="nt-head"><div><div class="nt-sender">${N.senderParts.map(e).join(' <i>→</i> ')}</div><div class="addr">${br(D.addr)}</div></div>
+          <div class="nt-meta">${N.meta.map(([a,b])=>`<span>${e(a)}</span><b>${e(b)}</b>`).join("")}</div></div>
+        <div class="nt-title"><b>${e(T.l)} Nr. ${nrHtml}</b><span>${deDate(r.datum)}</span></div>
+        <div class="nt-sub">${e(N.leist)}${r.geraet?`<br>Gerät: ${e(r.geraet)}${r.imei?` · IMEI/SN ${e(r.imei)}`:""}`:""}</div>
+        <table class="nt-tbl"><thead><tr><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
+          <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
+          <tbody class="nt-sum">${c.rab?srow("Summe Positionen",eurTxt(c.sum))+srow(`Rabatt (${numIn(r.rabatt)} %)`,"− "+eurTxt(c.rab)):""}${srow("Gesamtbetrag netto",eurTxt(c.netto),"g")}${tax}${srow("Gesamtbetrag brutto",`<b>${eurTxt(c.brutto)}</b>`,"g")}</tbody></table>
+        ${noteBody(X,r)?`<div class="nt-text">${noteBody(X,r)}</div>`:""}
+        <div class="nt-text">${e(N.thanks)}</div>
         <div class="nt-greet">Mit freundlichen Grüßen<b>${N.nm?`<span>${e(N.nm[1])}</span><span class="b2">${e(N.nm[2])}</span>`:e(f.name||"")}</b></div>
-        <div class="spacer"></div><div class="nt-page">1/1</div>
-        <div class="nt-foot">${fussSpalten(B.firma).map(cl=>`<div>${cl.map(z=>`<p>${e(z)}</p>`).join("")}</div>`).join("")}</div></div>`; }
+        <div class="spacer"></div>${haft}
+        <div class="nt-foot">${cols.map(cl=>`<div>${cl.map(([a,b])=>`<p>${a?`<i>${e(a)}</i>`:""}<b>${e(b)}</b></p>`).join("")}</div>`).join("")}</div></div>`; }
     if(lay==="minimal") return `<div class="paper lay-minimal">${stamp}
       <div class="mn-top">${logo}<span class="mn-from">${e(D.sender)}</span></div>
       <div class="mn-hero"><div><div class="mn-kicker">${T.l} · ${nrHtml}</div><div class="mn-amount">${eur(c.brutto)}</div><div class="mn-due">${e(D.due)}</div></div>${meta}</div>
@@ -1266,7 +1313,7 @@ export function startApp(){
   function sampleDoc(){
     const real=[...S.rechnungen].filter(r=>dTyp(r)==="rechnung"&&r.nr).sort((a,b)=>(b.datum||"").localeCompare(a.datum||""))[0];
     if(real) return {...real, status:S.firma.stempel?"bezahlt":real.status, bezahltAm:real.bezahltAm||today()};
-    return { typ:"rechnung", nr:fmtNr("rechnung",1), status:S.firma.stempel?"bezahlt":"offen", bezahltAm:today(), _kundeNeu:{name:"Max Mustermann (Beispiel)", strasse:"Hauptstraße 5", plz:"12345", ort:"Musterstadt"},
+    return { typ:"rechnung", nr:`RE-${new Date().getFullYear()}-0001`, status:S.firma.stempel?"bezahlt":"offen", bezahltAm:today(), _kundeNeu:{name:"Max Mustermann (Beispiel)", strasse:"Hauptstraße 5", plz:"12345", ort:"Musterstadt"},
       geraet:"iPhone X – Ladebuchse", imei:"35 291611 482736 4", datum:today(), leistung:today(), faellig:addDays(today(),+(S.firma.ziel??14)), mwst:S.firma.kleinunternehmer?0:19, brutto:!S.firma.netto, rabatt:0, notiz:defaultNote("rechnung"),
       positionen:[{bez:"Ladebuchse iPhone X",menge:1,einheit:"Stk.",preis:29},{bez:"Arbeitszeit / Reparatur",menge:1,einheit:"psch.",preis:S.firma.pauschale??39}] };
   }
@@ -1281,29 +1328,9 @@ export function startApp(){
       if(r.nr && r.id){ const cur=S.rechnungen.find(x=>x.id===r.id); if(cur) save("rechnungen",{...cur, verlauf:[...(cur.verlauf||[]),{t:nowStamp(),e:"PDF gespeichert"}]}); } }
     catch(e){ if(e && !["cancelled","declined","aborted"].includes(e.code)) toast("PDF konnte nicht gespeichert werden"); }
   }
-  // Schrift Open Sans fürs PDF (wie die Vorlage) – wird im Hintergrund nachgeladen, bis dahin Helvetica
-  let PDF_SCHRIFT=null; import("../assets/openSans.js").then(m=>{ PDF_SCHRIFT=m.default; }).catch(()=>{});
-  // Daten für das gemeinsame Layout „Neutral“ (rechnungPdf.js – dieselbe Datei nutzt die Website)
-  function neutralDaten(r, D){
-    const {f,c,t,T,X,k}=D, N=neutralData(r,D), byL=l=>N.meta.find(m=>m[0]===l);
-    const addr=[...D.addr]; if(addr.length && !k.land) addr.push("Deutschland");
-    const unter=[N.leist, r.geraet?`Gerät: ${r.geraet}${r.imei?"  ·  IMEI/SN "+r.imei:""}`:""];
-    return { logo:docLogo(), firma:{...f, land:f.land||"Deutschland"}, empfaenger:addr, titel:T.l, nrLabel:`${T.l}s-Nr.`, nr:shownNr(r),
-      meta1:[byL(t==="rechnung"?"Rechnungsdatum":"Datum"), byL("Lieferdatum"), byL("Gültig bis")],
-      meta2:[r.websiteAuftrag?["Auftrag", r.websiteAuftrag]:null, byL("Ihre Kundennummer"), byL("Ihr Ansprechpartner")],
-      unterzeile:unter, positionen:r.positionen,
-      summen:{ netto:c.netto, brutto:c.brutto, mwst:c.mwst, mwstSatz:c.p, rabatt:c.rab, rabattSatz:r.rabatt, summe:c.sum, ku:dKu(r) },
-      texte:[X.pay, r.notiz, N.thanks, f.haftung], gruss:f.name, schrift:PDF_SCHRIFT, qr:qrMatrix,
-      // GiroCode nur auf offenen Rechnungen mit Nummer
-      girocode: t==="rechnung" && r.nr && !["bezahlt","storniert"].includes(dStatus(r)) && f.iban && c.brutto>0
-        ? { name:f.kontoinhaber||f.inhaber||f.ansprechpartner||f.name, iban:f.iban, bic:f.bic, betrag:c.brutto, zweck:r.nr } : null };
-  }
   function buildPdfDoc(r){
     const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"mm",format:"a4"});
     const D=docParts(r), {f,c,t,T,X,job}=D, lay=pdfLayout();
-    if(lay==="neutral"){ zeichneRechnung(doc, neutralDaten(r,D));
-      if(X.stamp){ try{ doc.setPage(1); doc.saveGraphicsState(); doc.setGState(new doc.GState({opacity:.28})); doc.setTextColor(29,125,69); doc.setFont("helvetica","bold"); doc.setFontSize(46); doc.text("BEZAHLT",118,132,{angle:14}); doc.setFontSize(13); if(r.bezahltAm) doc.text(`am ${deDate(r.bezahltAm)}`,132,136,{angle:14}); doc.restoreGraphicsState(); }catch(e){} }
-      return doc; }
     const NAVY=[12,35,64], GREY=[93,102,115], INK=[21,27,36], LINE=[222,226,231], TINT=[238,243,248], WHITE=[255,255,255];
     const ACC=hexRgb((ACCENTS[f.akzent]||ACCENTS.repair).c), ACCT=ACC.map(v=>Math.round(255-(255-v)*.12));
     const txt=(s,x,yy,o)=>doc.text(Array.isArray(s)?s:String(s??""),x,yy,o);
@@ -1361,7 +1388,7 @@ export function startApp(){
     const ensure=(need,inTable)=>{ if(y+need>bottom){ doc.addPage(); pageDeco(false); y=CFG.contTop||25; if(inTable) tableHead(); } };
     function posRows(list,n){
       const cx=cols(), dw=(cx.menge-9)-cx.desc;
-      list.forEach(p=>{ fnt("normal",FS); const ls=[p.bez||"", ...String(p.text||"").split("\n").filter(Boolean)].flatMap(z=>doc.splitTextToSize(z,dw)); ensure(ls.length*RH()+2,true);
+      list.forEach(p=>{ fnt("normal",FS); const ls=doc.splitTextToSize(p.bez||"",dw); ensure(ls.length*RH()+2,true);
         col(INK); txt(String(++n),cx.pos,y); txt(ls,cx.desc,y); txt(numIn(p.menge),cx.menge,y,{align:"right"}); txt(p.einheit||"Stk.",cx.einh,y,{align:"center"}); txt(eur(p.preis),cx.ep,y,{align:"right"});
         fnt("bold",FS); txt(eur(p.menge*p.preis),cx.ges,y,{align:"right"}); fnt("normal",FS);
         y+=ls.length*RH()+CFG.rowGap; doc.setDrawColor(...(CFG.rowLine||[228,231,235])); doc.setLineWidth(.2); doc.line(L,y-RH()+.4,R,y-RH()+.4); });
@@ -1402,7 +1429,7 @@ export function startApp(){
       y+=h+5; col(INK);
     }
     function notesGreet(){
-      const arr=[...(garantieHinweis(r.positionen)?[garantieHinweis(r.positionen)]:[]), ...(X.klein?["Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."]:[]), ...(X.pay?[X.pay]:[]), ...(r.notiz?[...(X.pay?[""]:[]), r.notiz]:[])];
+      const arr=[...(X.klein?["Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."]:[]), ...(X.pay?[X.pay]:[]), ...(r.notiz?[...(X.pay?[""]:[]), r.notiz]:[])];
       fnt("normal",FS); col(INK);
       arr.forEach(n=>{ const ls=n?doc.splitTextToSize(n,R-L):[""]; ensure(ls.length*RH(),false); txt(ls,L,y); y+=ls.length*RH(); });
       y += lay==="kompakt"?5:8; ensure(12,false); txt("Mit freundlichen Grüßen",L,y); fnt("bold",FS); txt(f.name||"",L,y+RH()+1.5); fnt("normal",FS);
@@ -1454,14 +1481,53 @@ export function startApp(){
       y=70; fnt("bold",16); col(NAVY); txt(T.up,L,y); fnt("normal",11); col(ACC); txt(nrTxt,L,y+6.5); y+=15;
       deviceLine();
     }
-    intro(); positions(); y+=2; totals(); notesGreet();
+    if(lay==="neutral"){
+      const N=neutralData(r,D), BLUE=[41,170,225], FS2=8.3;
+      try{ const src=docLogo(), p=doc.getImageProperties(src), ra=p.width/p.height; let w=78,h=w/ra; if(h>24){h=24;w=h*ra;} doc.addImage(src, src.startsWith("data:image/png")?"PNG":"JPEG", (210-w)/2, 13, w, h); }
+      catch(e){ fnt("bold",18); col(NAVY); txt(f.name||"",105,24,{align:"center"}); }
+      // sender line with arrows
+      let x=L; const ys=57; fnt("bold",6.3); col(INK);
+      N.senderParts.forEach((pt,i)=>{ txt(pt,x,ys); x+=doc.getTextWidth(pt)+1.8;
+        if(i<N.senderParts.length-1){ doc.setDrawColor(...INK); doc.setLineWidth(.2); doc.line(x,ys-.8,x+2.6,ys-.8); doc.line(x+1.8,ys-1.5,x+2.6,ys-.8); doc.line(x+1.8,ys-.1,x+2.6,ys-.8); x+=4.4; } });
+      lines(D.addr,L,63.5,9,INK);
+      N.meta.forEach(([a,b],i)=>{ const yy=57.5+i*4.5; fnt("normal",5.9); col([74,79,87]); txt(a.toUpperCase(),120,yy,{charSpace:.35}); fnt("bold",7.2); col(INK); txt(b,155,yy); });
+      y=100; fnt("bold",13); col(INK); txt(`${T.l} Nr. ${nrTxt}`,L,y); fnt("normal",8.5); txt(deDate(r.datum),R-2,y,{align:"right"});
+      y+=8; fnt("normal",FS2); txt(N.leist,L,y); y+=4.2;
+      if(r.geraet){ txt(`Gerät: ${r.geraet}${r.imei?"  ·  IMEI/SN "+r.imei:""}`,L,y); y+=4.2; }
+      y+=2.5;
+      const cM=128, cE=158, cG=R-2, dw=(cM-24)-(L+10);
+      const nhead=()=>{ doc.setFillColor(228,228,228); doc.rect(L,y,R-L,7.5,"F"); fnt("bold",FS2); col(INK); txt("Beschreibung",L+2.5,y+5); txt("Menge",cM,y+5,{align:"right"}); txt("Einzelpreis",cE,y+5,{align:"right"}); txt("Gesamtpreis",cG,y+5,{align:"right"}); y+=7.5; };
+      nhead();
+      r.positionen.forEach((p,i)=>{ fnt("normal",FS2); const ls=doc.splitTextToSize(p.bez||"",dw); const h=ls.length*3.7+4.6;
+        if(y+h>bottom){ doc.addPage(); pageDeco(false); y=20; nhead(); }
+        if(i%2===1){ doc.setFillColor(241,241,241); doc.rect(L,y,R-L,h,"F"); }
+        col(INK); txt(`${i+1}.`,L+2.5,y+4.6); txt(ls,L+10,y+4.6); txt(`${qtyTxt(p.menge)} ${p.einheit||"Stk."}`,cM,y+4.6,{align:"right"}); txt(eurTxt(p.preis),cE,y+4.6,{align:"right"}); txt(eurTxt(p.menge*p.preis),cG,y+4.6,{align:"right"}); y+=h; });
+      const trow=(a,b,fill,bold)=>{ if(y+7.5>bottom){ doc.addPage(); pageDeco(false); y=20; } if(fill){ doc.setFillColor(236,236,236); doc.rect(L,y,R-L,7,"F"); } fnt("normal",FS2); col(INK); txt(a,L+2.5,y+4.7); if(b){ fnt(bold?"bold":"normal",FS2); txt(b,cG,y+4.7,{align:"right"}); } y+=7; };
+      if(c.rab){ trow("Summe Positionen",eurTxt(c.sum),false); trow(`Rabatt (${numIn(r.rabatt)} %)`,"− "+eurTxt(c.rab),false); }
+      trow("Gesamtbetrag netto",eurTxt(c.netto),true);
+      if(c.p) trow(`zzgl. Umsatzsteuer ${numIn(c.p)} %`,eurTxt(c.mwst),false); else trow(dKu(r)?"Umsatzsteuer nicht erhoben gemäß § 19 UStG.":"Umsatzsteuer 0 %","",false);
+      trow("Gesamtbetrag brutto",eurTxt(c.brutto),true,true);
+      y+=9; fnt("normal",FS2); col(INK);
+      [X.pay, r.notiz, N.thanks].filter(Boolean).forEach(pp=>{ const ls=doc.splitTextToSize(pp,R-L); if(y+ls.length*3.8>bottom){ doc.addPage(); pageDeco(false); y=20; } txt(ls,L,y); y+=ls.length*3.8+3; });
+      y+=1.5; if(y+8>bottom){ doc.addPage(); pageDeco(false); y=20; } txt("Mit freundlichen Grüßen",L,y); y+=3.9; fnt("bold",FS2);
+      if(N.nm){ col(INK); txt(N.nm[1],L,y); col(BLUE); txt(N.nm[2],L+doc.getTextWidth(N.nm[1]),y); } else { col(INK); txt(f.name||"",L,y); }
+      col(INK);
+    } else { intro(); positions(); y+=2; totals(); notesGreet(); }
 
     // ---- every page: stamp, liability note, footer
     const pages=doc.getNumberOfPages();
     for(let pg=1; pg<=pages; pg++){ doc.setPage(pg); const fy=CFG.foot;
       if(X.stamp && pg===1){ try{ doc.saveGraphicsState(); doc.setGState(new doc.GState({opacity:.28})); doc.setTextColor(29,125,69); fnt("bold",46); txt("BEZAHLT",lay==="side"?122:118,CFG.stampY,{angle:14}); fnt("bold",13); if(r.bezahltAm) txt(`am ${deDate(r.bezahltAm)}`,lay==="side"?136:132,CFG.stampY+4,{angle:14}); doc.restoreGraphicsState(); }catch(e){} }
       if(haftLines.length){ fnt("normal",7); col(GREY); txt(haftLines,L,(lay==="side"?fy-2:fy-7)-(haftLines.length-1)*3.2); }
-      if(lay!=="side"){
+      if(lay==="neutral"){
+        doc.setDrawColor(213,217,223); doc.setLineWidth(.2); doc.line(L,fy-4,R,fy-4);
+        const cols=[[["",f.name],["",f.strasse],["",[f.plz,f.ort].filter(Boolean).join(" ")]],[["TEL",f.tel],["MAIL",f.mail]],[["BANK",f.bank],["IBAN",f.iban],["BIC",f.bic]],[["ST.-NR.",f.stnr],["UST-ID",f.ustid]]]
+          .map(cl=>cl.filter(x=>x[1])).filter(cl=>cl.length);
+        const xs=[L, L+40, L+80, L+134];
+        cols.forEach((cl,ci)=>cl.forEach(([a,b],i)=>{ const yy=fy+i*3.4; let x=xs[ci]||xs[3];
+          if(a){ fnt("normal",5.4); col([107,112,121]); txt(a,x,yy,{charSpace:.3}); x+= ci===3?11:9; }
+          fnt("bold",6.6); col(INK); txt(b,x,yy); }));
+      } else if(lay!=="side"){
         doc.setDrawColor(...(lay==="minimal"?LINE:GREY)); doc.setLineWidth(.2); doc.line(L,fy-4,R,fy-4); fnt("normal",7.3); col(GREY);
         const cw=(R-L)/3;
         [[f.name,...D.firm],bankLines,[f.tel&&"Tel. "+f.tel,...taxLines].filter(Boolean)].forEach((cl,ci)=>cl.filter(Boolean).forEach((s,i)=>txt(s,L+ci*cw,fy+i*3.4)));
@@ -1478,8 +1544,8 @@ export function startApp(){
     openSheet(k?"Kunde":"Neuer Kunde", `
       <div class="group"><span class="glabel">Kontakt</span><div class="box">${fld("kName","Name",k?.name,"Vor- und Nachname")}${fld("kFirma","Firma",k?.firma,"optional")}${fld("kTel","Telefon",k?.tel,"optional","tel")}${fld("kMail","E-Mail",k?.mail,"optional","email")}${fld("kNr","Kunden-Nr.",k?.nr||"",k?kundenNr(k):nextKundenNr())}</div></div>
       <div class="group"><span class="glabel">Adresse (für die Rechnung)</span><div class="box">${fld("kStr","Straße, Nr.",k?.strasse,"optional")}<div class="two">${fld("kPlz","PLZ",k?.plz,"")}${fld("kOrt","Ort",k?.ort,"")}</div>${fld("kLand","Land",k?.land,"optional, z. B. Deutschland")}</div></div>
-      ${jobs.length?`<div class="group"><span class="glabel">Aufträge</span>${jobs.map(jobCard).join("")}</div>`:""}
-      ${docs.length?`<div class="group"><span class="glabel">Rechnungen &amp; Angebote</span>${docs.map(docCard).join("")}</div>`:""}
+      ${jobs.length?`<div class="group"><span class="glabel">Aufträge</span><div class="lgroup">${jobs.map(jobCard).join("")}</div></div>`:""}
+      ${docs.length?`<div class="group"><span class="glabel">Rechnungen &amp; Angebote</span><div class="lgroup">${docs.map(r=>docCard(r,true)).join("")}</div></div>`:""}
       ${k?`<button class="btn danger" id="delK">Kunde löschen</button><div id="delConfirm"></div>`:""}`, () => {
         const name=val("kName"); if(!name){ toast("Bitte einen Namen eintragen"); $("#kName").focus(); return false; }
         save("kunden",{...(k||{id:uid(),created:today()}), nr:val("kNr")||(k?kundenNr(k):nextKundenNr()), name, firma:val("kFirma"), tel:val("kTel"), mail:val("kMail"), strasse:val("kStr"), plz:val("kPlz"), ort:val("kOrt"), land:val("kLand")}); toast(k?"Kunde gespeichert":"Kunde angelegt"); });
@@ -1499,12 +1565,11 @@ export function startApp(){
         <div class="field"><label for="tPreis">Verkaufspreis €</label><input id="tPreis" inputmode="decimal" placeholder="0,00" value="${numIn(t?.preis)}"></div>
         <div class="field"><label for="tEk">Einkaufspreis €</label><input id="tEk" inputmode="decimal" placeholder="optional" value="${numIn(t?.ek)}"></div>
         <div class="field"><label for="tBest">Bestand (Stk.)</label><input id="tBest" inputmode="numeric" placeholder="0" value="${numIn(t?.bestand)}"></div>
-        <div class="field"><label for="tLager">Lagerort</label><input id="tLager" placeholder="optional, z. B. Schublade 2" value="${esc(t?.lager)}"></div>
-        <div class="field"><label for="tGar">Garantie</label><input id="tGar" placeholder="${esc(S.firma.garantie||GARANTIE_STANDARD)}" value="${esc(t?.garantie)}"></div></div>
-        <p class="help">Wird ein Teil in eine Rechnung übernommen, sinkt der Bestand automatisch. Auf dem Beleg steht darunter „inkl. Ersatzteil, Einbau &amp; Funktionstest · Garantie*“ – leer lassen = Standard-Garantie aus den Einstellungen, z. B. „lebenslange Garantie gegen Stickdrift“ für TMR-Sticks.</p></div>
+        <div class="field"><label for="tLager">Lagerort</label><input id="tLager" placeholder="optional, z. B. Schublade 2" value="${esc(t?.lager)}"></div></div>
+        <p class="help">Wird ein Teil in eine Rechnung übernommen, sinkt der Bestand automatisch.</p></div>
       ${t?`<button class="btn danger" id="delT">Ersatzteil löschen</button>`:""}`, () => {
         const bez=val("tBez"); if(!bez){ toast("Bitte eine Bezeichnung eintragen"); $("#tBez").focus(); return false; }
-        save("teile",{...(t||{id:uid()}), bez, artnr:val("tArt"), preis:parseNum(val("tPreis")), ek:val("tEk")?parseNum(val("tEk")):"", bestand:parseNum(val("tBest")), lager:val("tLager"), kategorie:val("tKat")||"Artikel", einheit:val("tEinh")||"Stk.", garantie:val("tGar")}); toast("Produkt gespeichert"); });
+        save("teile",{...(t||{id:uid()}), bez, artnr:val("tArt"), preis:parseNum(val("tPreis")), ek:val("tEk")?parseNum(val("tEk")):"", bestand:parseNum(val("tBest")), lager:val("tLager"), kategorie:val("tKat")||"Artikel", einheit:val("tEinh")||"Stk."}); toast("Produkt gespeichert"); });
     const d=$("#delT"); if(d) d.onclick=()=>{ remove("teile",t.id); closeSheet(); toast("Ersatzteil gelöscht"); };
   }
 
@@ -1555,8 +1620,7 @@ export function startApp(){
         <div class="field"><label for="cLogo">Neues Logo</label><input type="file" id="cLogo" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="text-align:left"></div>
         ${logo?`<div class="field"><button type="button" class="btn ghost sm" id="cLogoDel">Logo entfernen</button></div>`:""}</div>
         <p class="help">PNG oder JPG. Weiße Ränder werden automatisch abgeschnitten, damit das Logo oben links auf dem Beleg so groß wie möglich und unverzerrt erscheint.</p></div>
-      <div class="group"><span class="glabel">Bankverbindung</span><div class="box">${fld("cBank","Bank",f.bank,"z. B. Sparkasse")}${fld("cIban","IBAN",f.iban,"DE00 0000 0000 0000 0000 00","mono")}${fld("cBic","BIC",f.bic,"optional","mono")}${fld("cKInh","Kontoinhaber",f.kontoinhaber,"Name wie bei der Bank, z. B. Oleg Schäfer")}</div>
-        <p class="help">Der Kontoinhaber steht im GiroCode (QR-Code zum Überweisen) auf der Rechnung. Er muss genau so lauten wie bei deiner Bank, sonst warnt die Banking-App des Kunden bei der Empfängerprüfung.</p></div>
+      <div class="group"><span class="glabel">Bankverbindung</span><div class="box">${fld("cBank","Bank",f.bank,"z. B. Sparkasse")}${fld("cIban","IBAN",f.iban,"DE00 0000 0000 0000 0000 00","mono")}${fld("cBic","BIC",f.bic,"optional","mono")}</div></div>
       <div class="group"><span class="glabel">Steuer</span><div class="box">${fld("cStnr","Steuernummer",f.stnr,"123/456/78901","mono")}${fld("cUst","USt-IdNr.",f.ustid,"optional","mono")}
         <input type="checkbox" id="cKlein" hidden ${f.kleinunternehmer?"checked":""}><input type="checkbox" id="cNetto" hidden ${f.netto?"checked":""}></div>
         <span class="glabel tmhead">Steuer-Modus (Standard für neue Belege)</span>
@@ -1568,9 +1632,8 @@ export function startApp(){
         <div class="field"><label for="cPreAn">Angebote</label><input id="cPreAn" class="mono" maxlength="12" autocapitalize="characters" placeholder="AN-" value="${esc(f.preAn??"")}"></div>
         <div class="field"><label for="cPreKv">Kostenvoranschläge</label><input id="cPreKv" class="mono" maxlength="12" autocapitalize="characters" placeholder="KV-" value="${esc(f.preKv??"")}"></div>
         <div class="field"><label for="cNrJahr">Jahreszahl in Belegnummer</label><input type="checkbox" class="toggle" id="cNrJahr" ${f.nrJahr!==false?"checked":""}></div>
-        <div class="field"><label for="cReStart">Rechnungen ${new Date().getFullYear()} starten bei</label><input id="cReStart" class="mono" inputmode="numeric" placeholder="1" value="${+f.reStartYear===new Date().getFullYear() && +f.reStart>1 ? esc(String(f.reStart)) : ""}"></div>
         <div class="kv" style="flex-direction:column;gap:6px"><span>Nächste Nummern</span><div id="nrPrev" class="mono"></div></div></div>
-        <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 001. „Starten bei“ gilt nur, solange noch keine höhere Nummer vergeben ist – z. B. 30, wenn die letzte Rechnung aus einem anderen Programm die 29 war.</p></div>
+        <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 0001.</p></div>
       <div class="group" id="grpKi"><span class="glabel">KI-Belegerkennung</span><div class="box">
         <div class="field"><label for="cKiProv">Belegerkennungs-Anbieter</label><select id="cKiProv">${Object.entries(KI_PROV).map(([k,p])=>`<option value="${k}" ${kiProv()===k?"selected":""}>${esc(p.l)}${k==="gemini"?" – eigener API-Key":k==="docai"?" – inklusive":""}</option>`).join("")}</select></div>
         <div data-kp="gemini">
@@ -1586,15 +1649,13 @@ export function startApp(){
         <p class="help" data-kp="gemini">Mit Key liest die KI beim Erfassen einer Ausgabe Händler, Datum, Rechnungs-Nr., Betrag und MwSt. aus. Dazu wird das Foto bzw. die PDF an Google gesendet – im kostenlosen Tarif darf Google die Inhalte zur Verbesserung seiner Dienste verwenden. Ohne Key oder bei einem Fehler nutzt die App automatisch die lokale Texterkennung. Den Key erstellen Sie in Google AI Studio; er wird nicht ins Backup geschrieben. Modell leer lassen = automatisch: Die App fragt Google, welche Modelle Ihr Key nutzen darf, und weicht bei Überlastung, Limit oder Zeitüberschreitung selbst auf das nächste aus.</p></div>
       <div class="group"><span class="glabel">Standards</span><div class="box">
         <div class="field"><label for="cZiel">Zahlungsziel (Tage)</label><input id="cZiel" inputmode="numeric" value="${f.ziel??14}"></div>
-        <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div>
-        <div class="field"><label for="cGar">Garantie (Standard)</label><input id="cGar" placeholder="${esc(GARANTIE_STANDARD)}" value="${esc(f.garantie||"")}"></div></div>
-        <p class="help">Steht bei Ersatzteil-Positionen in der zweiten Zeile. Bei einzelnen Produkten kann ein eigener Garantie-Text hinterlegt werden.</p></div>`, () => {
-        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), kontoinhaber:val("cKInh"), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), garantie:val("cGar"), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
+        <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div></div></div>`, () => {
+        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
         toast("Firmendaten gespeichert"); });
     bindTaxMode("cTax", m=>{ $("#cKlein").checked = m==="ku"; $("#cNetto").checked = m==="netto"; });
     const nrUpd=()=>{ const f2={...S.firma, ...readNrForm()};
       $("#nrPrev").innerHTML=[["Auftrag",nextJobNrFor(f2)],["Rechnung",nextNr("rechnung",f2)],["Angebot",nextNr("angebot",f2)],["KVA",nextNr("kva",f2)]].map(([a,b])=>`<i>${a}</i><b>${esc(b)}</b>`).join(""); };
-    ["cPreJob","cPreRe","cPreAn","cPreKv","cReStart"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
+    ["cPreJob","cPreRe","cPreAn","cPreKv"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
     $("#cLogo").onchange=e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>prepareLogo(rd.result, out=>{ logo=out; $("#lPrev img").hidden=false; $("#lPrev img").src=logo; $("#lInfo").textContent="Neues Logo – zum Übernehmen „Speichern“ tippen"; }); rd.readAsDataURL(file); };
     $("#cGemEye").onclick=()=>{ const i=$("#cGemini"); i.type = i.type==="password" ? "text" : "password"; };
     bindKiForm();
@@ -1647,8 +1708,8 @@ export function startApp(){
   const isPicked = (kind,id) => UI.sel?.kind===kind && UI.sel.ids.has(id);
   const pickCircle = () => `<span class="pickc" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>`;
   function pickWrap(kind, id, inner){
-    if(UI.sel?.kind!==kind) return `<button class="card" data-${kind==="kunden"?"kunde":"teil"}="${id}">${inner}</button>`;
-    return `<button class="card pickrow${isPicked(kind,id)?" picked":""}" data-pick="${id}" aria-pressed="${isPicked(kind,id)}">${pickCircle()}<div class="pickbody">${inner}</div></button>`;
+    if(UI.sel?.kind!==kind) return `<button class="lrow" data-${kind==="kunden"?"kunde":"teil"}="${id}">${inner}${CHEV}</button>`;
+    return `<button class="lrow pickrow${isPicked(kind,id)?" picked":""}" data-pick="${id}" aria-pressed="${isPicked(kind,id)}">${pickCircle()}${inner}</button>`;
   }
   function selBar(kind){
     if(UI.sel?.kind!==kind) return "";
@@ -1659,8 +1720,8 @@ export function startApp(){
       if(kind==="kunden"){ const jobs=S.auftraege.filter(a=>UI.sel.ids.has(a.kundeId)).length, docs=S.rechnungen.filter(r=>UI.sel.ids.has(r.kundeId)).length;
         if(jobs||docs) extra=` ${[jobs?`${jobs} Auftr${jobs===1?"ag":"äge"}`:"", docs?`${docs} Beleg${docs===1?"":"e"}`:""].filter(Boolean).join(" und ")} bleiben erhalten, aber ohne Kunde.`; }
       else if(kind==="teile") extra=" Bereits erstellte Rechnungen bleiben unverändert.";
-      else { const fin=S.rechnungen.filter(r=>UI.sel.ids.has(r.id) && docLocked(r)).length;
-        if(fin) extra=` Darunter ${fin} erstellte Rechnung${fin===1?"":"en"} – diese werden nicht gelöscht (Aufbewahrungspflicht 10 Jahre), sondern können nur storniert werden.`; }
+      else { const fin=S.rechnungen.filter(r=>UI.sel.ids.has(r.id) && dTyp(r)==="rechnung" && r.nr && !["entwurf","storniert"].includes(dStatus(r))).length;
+        if(fin) extra=` Darunter ${fin} erstellte Rechnung${fin===1?"":"en"} – diese besser stornieren statt löschen (Aufbewahrungspflicht 10 Jahre).`; }
       return `<div class="selbar warn" role="alertdialog"><span class="n">${n} ${word} endgültig löschen?<small>${extra.trim()}</small></span><div class="btnrow"><button class="btn ghost sm" data-act="selNo">Abbrechen</button>${kind==="rechnungen" && extra ? `<button class="btn sm" data-act="selStorno">Stornieren</button>` : ""}<button class="btn danger sm" data-act="selYes">Löschen</button></div></div>`;
     }
     return `<div class="selbar"><button class="btn ghost sm" data-act="selAll">${all?"Keine":"Alle"} auswählen</button><span class="n">${n} ausgewählt</span><button class="btn danger sm" data-act="selDel" ${n?"":"disabled style='opacity:.45'"}>Löschen</button></div>`;
@@ -3007,7 +3068,7 @@ export function startApp(){
       try{ const c=await sbClient(); await c.auth.signOut({ scope:"local" }); }catch(e){}
       try{ localStorage.removeItem(SB_STORE); }catch(e){}
       lsSet(obKey(), null); lsSet("wb-owner", null); if(CLOUD.user) lsSet("wb-lastpull-"+CLOUD.user.id, null);
-      CLOUD.user=null; CLOUD.ready=false; await wipeLocal(); LOGGING_OUT=false; UI.view="auftraege";
+      CLOUD.user=null; CLOUD.ready=false; await wipeLocal(); LOGGING_OUT=false; UI.view="home";
       showAuth("login", { msg:"Du wurdest abgemeldet.", kind:"ok" });
   }
   async function logout(){
@@ -3021,11 +3082,11 @@ export function startApp(){
     if(!CLOUD.user) return `<div class="group" id="grpKonto"><span class="glabel">${CLOUD.skip?"Konto &amp; Cloud":"Daten"}</span><div class="card">${CLOUD.skip?`<span style="color:var(--muted)">Vorschau ohne Anmeldung.</span><div class="btnrow"><button class="btn" data-act="login">Anmelden</button></div>`:`<span style="color:var(--muted)">Alle Daten dieser App auf einen Schlag entfernen.</span>`}
       <button type="button" class="delacct" data-act="delAcct">${ICO_TRASH}<span>Alle Daten löschen</span></button></div></div>`;
     const u=CLOUD.user;
-    return `<div class="group" id="grpKonto"><span class="glabel">Konto &amp; Cloud</span><div class="card acct">
+    return `<div class="group" id="grpKonto"><div class="card acct profile">
       <div class="row"><span class="acav">${esc((u.user_metadata?.name||u.email||"?").trim()[0]||"?").toUpperCase()}</span><span class="acwho"><b>${esc(u.user_metadata?.name||S.firma.ansprechpartner||"Angemeldet")}</b><small>${esc(u.email||"")}</small></span></div>
       <div class="cstate ${CLOUD.status}" id="cloudState">${cloudStateHtml()}</div>
       ${LOGOUT_ASK?`<div class="confirm"><span>${LOGOUT_ASK}</span><div class="btnrow"><button class="btn danger" data-act="logoutYes">Ja, abmelden</button><button class="btn ghost" data-act="logoutNo">Abbrechen</button></div></div>`
-        :`<div class="btnrow">${CLOUD.off?"":`<button class="btn ghost" data-act="syncNow">${ico.sync} Jetzt synchronisieren</button>`}<button class="btn danger" data-act="logout">Abmelden</button></div>`}
+        :`<div class="btnrow">${CLOUD.off?"":`<button class="btn grey" data-act="syncNow">${ico.sync} Jetzt synchronisieren</button>`}<button class="btn danger" data-act="logout">Abmelden</button></div>`}
       <button type="button" class="delacct" data-act="delAcct">${ICO_TRASH}<span>Konto löschen</span></button>
     </div></div>`;
   }
@@ -3036,8 +3097,8 @@ export function startApp(){
   function ioBar(kind, n, one, many){
     const K = kind==="kunden" ? "Kunden" : "Teile";
     return `<div class="iobar"><span class="cnt">${n} ${n===1?one:many}</span>
-      <button class="btn ghost sm" data-act="import${K}">${ico.upl} Importieren</button>
-      <button class="btn ghost sm" data-act="export${K}" ${n?"":"disabled style='opacity:.5'"}>${ico.dl} Exportieren ▾</button>
+      <button class="btn ghost sm" data-act="import${K}">${ico.upl} Import</button>
+      <button class="btn ghost sm" data-act="export${K}" ${n?"":"disabled style='opacity:.5'"}>${ico.dl} Export</button>
       ${n ? (UI.sel?.kind===kind ? `<button class="btn sm" data-act="selDone">Fertig</button>` : `<button class="btn ghost sm" data-act="selStart" data-kind="${kind}">${ico.checkc} Auswählen</button>`) : ""}</div>`;
   }
   function exportMenu(kind){
@@ -3415,7 +3476,7 @@ export function startApp(){
     const neu=recs.filter(r=>!exists(r)), dup=recs.length-neu.length;
     const newKunden=new Set(neu.filter(r=>r.kunde && !findK(r)).map(r=>normH(r.kunde))).size;
     const y=new Date().getFullYear(), seqMax=Math.max(0,...neu.filter(r=>r.datum.startsWith(String(y))).map(r=>seqNo(r.nr,y)));
-    const ownMax=nrMax(S.rechnungen.filter(d=>dTyp(d)==="rechnung"), "rechnung");
+    const ownMax=nrMax(S.rechnungen.filter(d=>dTyp(d)==="rechnung"), nrStem("rechnung"));
     const suggest = seqMax ? Math.max(seqMax, ownMax)+1 : 0;
     const sum=neu.reduce((s,r)=>s+r.brutto,0);
     const chips=IMPORT_FIELDS.rechnungen.filter(([k])=>map[k]!=null).map(([k,l])=>`<span class="mapchip"><b>${esc(l)}</b><span>← ${esc(rows[hi][map[k]])}</span></span>`).join("");
@@ -3426,7 +3487,7 @@ export function startApp(){
       <div class="group"><span class="glabel">Vorschau${recs.length>8?` (erste 8 von ${recs.length})`:""}</span><div class="box imprev">${prev}</div></div>
       <div class="card" style="gap:8px">
         <span>${neu.length} neu${dup?`, ${dup} schon vorhanden (werden übersprungen)`:""}${newKunden?` · ${newKunden===1?"1 neuer Kunde wird":newKunden+" neue Kunden werden"} angelegt`:""}.</span>
-        ${suggest?`<div class="lineform" style="border-top:1px solid var(--line);padding-top:10px"><span><b style="font-weight:600">Nummern fortsetzen</b><br><small style="color:var(--muted)">Neue Rechnungen in der Werkbank starten mit ${esc(fmtNr("rechnung",suggest))}, damit sie an Ihre sevdesk-Nummern anschließen.</small></span><input type="checkbox" class="toggle" id="imSeq" checked></div>`:""}
+        ${suggest?`<div class="lineform" style="border-top:1px solid var(--line);padding-top:10px"><span><b style="font-weight:600">Nummern fortsetzen</b><br><small style="color:var(--muted)">Neue Rechnungen in der Werkbank starten mit ${esc(nrStem("rechnung"))}${pad4(suggest)}, damit sie an Ihre sevdesk-Nummern anschließen.</small></span><input type="checkbox" class="toggle" id="imSeq" checked></div>`:""}
         <p class="help" style="margin:0">Übernommen werden Nummer, Datum, Kunde, Betrag, Steuersatz und Status. Die einzelnen Positionen stehen nicht in der sevdesk-Liste – jede Rechnung bekommt eine Sammelposition. Die Original-PDFs aus sevdesk bleiben Ihre Belege.</p></div>
     `, null, "", { foot:`<button class="btn accent wide" id="imGo" ${neu.length?"":"disabled style='opacity:.5'"}>${ico.upl} ${neu.length} Rechnung${neu.length===1?"":"en"} importieren</button>` });
     $("#imGo").onclick=()=>{
@@ -3512,7 +3573,7 @@ export function startApp(){
     help:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9.5"/><path d="M9.5 9.3a2.6 2.6 0 0 1 5 .9c0 1.7-2.5 2.3-2.5 3.8M12 17.3h.01"/></svg>',
     example:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3l2.4 5.2 5.6.6-4.2 3.8 1.2 5.6L12 15.4 7 18.2l1.2-5.6L4 8.8l5.6-.6z"/></svg>'
   };
-  function gotoGroup(id){ closeMenu(); UI.view="mehr"; render(); requestAnimationFrame(()=>{ const g=$("#"+id); if(g){ g.scrollIntoView({block:"start",behavior:"smooth"}); } }); }
+  function gotoGroup(id){ closeMenu(); UI.mopen=id; UI.view="mehr"; render(); requestAnimationFrame(()=>{ const g=$("#"+id); if(g){ g.scrollIntoView({block:"start",behavior:"smooth"}); } }); }
   function openMenu(){
     const m=$("#menu"), items=[
       {k:"teile", l:"Ersatzteile & Lager", f:()=>gotoGroup("grpTeile")},
@@ -3530,7 +3591,7 @@ export function startApp(){
     m.querySelector("button")?.focus();
   }
   function closeMenu(){ $("#menu").hidden=true; $("#mscrim").hidden=true; $("#btnMenu").setAttribute("aria-expanded","false"); }
-  $("#btnMenu").onclick=()=> $("#menu").hidden ? openMenu() : closeMenu();
+  $("#btnMenu").onclick=()=>{ closeMenu(); if(UI.view==="mehr"){ switchView(UI.lastTab||"home"); } else { UI.lastTab=UI.view; switchView("mehr"); } };
   $("#mscrim").onclick=closeMenu;
   $("#btnSearch").onclick=()=>openSearch();
   document.addEventListener("keydown", e=>{ if(e.key!=="Escape") return; if(!$("#tour").hidden) endTour(); else if(!$("#menu").hidden) closeMenu(); });
@@ -3574,18 +3635,25 @@ export function startApp(){
 
   /* guided tour with speech bubbles */
   const TOURS = {
+    home:[
+      {sel:"#main .kpis", t:"Auf einen Blick", x:"Offene Rechnungen, Umsatz des Monats und laufende Aufträge. Tippen Sie eine Karte an, um direkt zur Liste zu springen."},
+      {sel:"#main .qgrid", t:"Schnellaktionen", x:"Die häufigsten Aufgaben mit einem Tipp: Rechnung, Auftrag, Kunde oder Beleg per Foto."},
+      {sel:"#btnAdd", t:"Neu anlegen", x:"Das + oben legt in jeder Ansicht das Passende an – hier können Sie wählen, was."},
+      {sel:"#btnSearch", t:"Alles finden", x:"Die Lupe durchsucht Aufträge, Kunden, Termine und Rechnungen auf einmal – auch nach IMEI oder Datum."},
+      {sel:"#btnMenu", t:"Einstellungen", x:"Das Zahnrad öffnet Firmendaten, Ersatzteile, Textbausteine, Datensicherung und die Tour-Hilfe."}
+    ],
     auftraege:[
-      {sel:"#fab", t:"Neuen Auftrag erstellen", x:"Tippen Sie hier, um ein Gerät anzunehmen – mit Kunde, Fehlerbeschreibung, Termin und Ersatzteilen."},
+      {sel:"#btnAdd", t:"Neuen Auftrag erstellen", x:"Tippen Sie hier, um ein Gerät anzunehmen – mit Kunde, Fehlerbeschreibung, Termin und Ersatzteilen."},
       {sel:"#main .chips", t:"Aufträge filtern", x:"Wechseln Sie zwischen offenen, abholbereiten und abgeholten Aufträgen."},
       {sel:"#main [data-job]", t:"Auftrag öffnen", x:"Im Auftrag ändern Sie den Status, tragen „Heute repariert“ ein und erstellen Rechnung oder Kostenvoranschlag."},
       {sel:"#btnSearch", t:"Alles finden", x:"Die Lupe durchsucht Aufträge, Kunden, Termine und Rechnungen auf einmal – auch nach IMEI oder Datum."},
-      {sel:"#btnMenu", t:"Mehr & Hilfe", x:"Hier finden Sie Ersatzteile, Textbausteine, Datensicherung und diese Tour."}
+      {sel:"#btnMenu", t:"Einstellungen", x:"Das Zahnrad öffnet Firmendaten, Ersatzteile, Textbausteine, Datensicherung und die Tour-Hilfe."}
     ],
     kalender:[
       {sel:"#main .grid", t:"Monatsübersicht", x:"Blaue Punkte sind Termine, grüne Punkte Reparaturen, graue Abholungen. Tippen Sie auf einen Tag."},
       {sel:"#main .calhead", t:"Monat wechseln", x:"Mit den Pfeilen blättern Sie, „Heute“ springt zurück zum aktuellen Tag."},
       {sel:"#dayList", t:"Tagesübersicht", x:"Alles, was am gewählten Tag ansteht oder erledigt wurde. Tippen öffnet den Auftrag."},
-      {sel:"#fab", t:"Termin anlegen", x:"Legt einen neuen Auftrag mit Termin direkt am gewählten Tag an."}
+      {sel:"#btnAdd", t:"Termin anlegen", x:"Legt einen neuen Auftrag mit Termin direkt am gewählten Tag an."}
     ],
     rechnungen:[
       {sel:"#main .seg", t:"Rechnungen und Angebote", x:"Oben wechseln Sie zwischen Rechnungen und Angeboten bzw. Kostenvoranschlägen."},
@@ -3798,7 +3866,7 @@ export function startApp(){
   /* ===================== v49: Zahlen zählen beim Öffnen hoch ===================== */
   function countUp(root){
     if(!root || reducedMotion()) return;
-    $$(".stats .stat b, .tri b, .asum .abig", root).forEach(el=>{
+    $$(".stats .stat b, .tri b, .asum .abig, .kpis .kpi > b", root).forEach(el=>{
       const txt=el.textContent.trim(), isEur=/€/.test(txt);
       const n = isEur ? parseFloat(txt.replace(/[^\d,\-]/g,"").replace(",",".")) : parseInt(txt.replace(/[^\d\-]/g,""),10);
       if(!isFinite(n) || n===0) return;
@@ -4156,13 +4224,13 @@ export function startApp(){
       try{ await c.auth.signOut({ scope:"local" }); }catch(e){}
       try{ localStorage.removeItem(SB_STORE); }catch(e){}
       lsSet(obKey(), null); lsSet("wb-owner", null); lsSet("wb-lastpull-"+uid, null); lsSet("wb-gemkey-"+uid, null);
-      CLOUD.user=null; CLOUD.ready=false; await wipeLocal(); UNDO.length=0; LOGGING_OUT=false; UI.view="auftraege";
+      CLOUD.user=null; CLOUD.ready=false; await wipeLocal(); UNDO.length=0; LOGGING_OUT=false; UI.view="home";
       showAuth("login", { msg:"Ihr Konto und alle Daten wurden gelöscht.", kind:"ok" });
       return;
     }
     // ohne Cloud-Konto: alle Daten in dieser App entfernen
     if(mode==="db"){ for(const c of COLLS){ const ids=S[c].map(x=>x.id); if(ids.length) await _removeMany(c, ids); } try{ for(const id of (await BILD.tx("readonly", s=>s.getAllKeys()))||[]) await BILD.del(id); }catch(e){} await saveFirma({}); }
-    await wipeLocal(); UNDO.length=0; UI.view="auftraege"; render(); toast("Alle Daten wurden gelöscht");
+    await wipeLocal(); UNDO.length=0; UI.view="home"; render(); toast("Alle Daten wurden gelöscht");
   }
 
   /* ===================== Sprachnotiz: einsprechen → Text → sauberer Kundenbericht ===================== */
@@ -4357,5 +4425,5 @@ export function startApp(){
   document.addEventListener("touchstart", ()=>{}, {passive:true});
   applyTheme(); lsLoad(); render(); connectDb(); authBoot();
   // first visit: show the short tour for Aufträge once
-  setTimeout(()=>{ let seen=false; try{ seen=!!localStorage.getItem("rm-tour-auftraege"); }catch(e){} if(!seen && UI.view==="auftraege" && $("#sheet").hidden && !$("#auth:not([hidden])")) startTour("auftraege"); }, 900);
+  setTimeout(()=>{ let seen=false; try{ seen=!!localStorage.getItem("rm-tour-home"); }catch(e){} if(!seen && UI.view==="home" && $("#sheet").hidden && !$("#auth:not([hidden])")) startTour("home"); }, 900);
 }
