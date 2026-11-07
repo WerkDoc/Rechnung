@@ -5,6 +5,11 @@
  * wird zusätzlich der Konto-Speicher genutzt.
  */
 import BRAND_LOGO from "../assets/brandLogo.js";
+import { zeichneRechnung, fussSpalten, positionsTitel, positionsText, garantieHinweis, GARANTIE_STANDARD, giroCodeText } from "./rechnungPdf.js";
+import qrcode from "qrcode-generator";
+
+// QR-Matrix für den GiroCode (UTF-8, Fehlerkorrektur M – wie von der EPC-Richtlinie empfohlen)
+function qrMatrix(text){ qrcode.stringToBytes = qrcode.stringToBytesFuncs["UTF-8"]; const q=qrcode(0,"M"); q.addData(text,"Byte"); q.make(); return { n:q.getModuleCount(), dark:(r,c)=>q.isDark(r,c) }; }
 
 /* Datei speichern: im Claude-Artifact über dessen Download-Funktion,
    sonst Teilen-Menü (iPhone/Android, z. B. WhatsApp, Mail, Dateien) oder normaler Download. */
@@ -114,7 +119,7 @@ export function startApp(){
     block:{l:"Header-Block", d:"Farbiger Kopf mit Logo und Titel"},
     side:{l:"Zweispaltig", d:"Firmen- und Bankdaten in der Seitenleiste"},
     werkstatt:{l:"Werkstatt", d:"Gerätefeld, Arbeitslohn und Teile getrennt"},
-    neutral:{l:"Neutral", d:"Logo mittig, Stammdaten rechts, Zebra-Tabelle"}
+    neutral:{l:"Neutral", d:"Logo mittig, Stammdaten rechts – wie die Website-Rechnungen"}
   };
   const TEXT_SUGGEST = {
     textRechnung:"Auf verbaute Ersatzteile gewähren wir zusätzlich 6 Monate Garantie. Ihre gesetzlichen Gewährleistungsrechte bleiben davon unberührt. Ausgenommen von der Garantie sind Schäden durch Sturz, Feuchtigkeit oder Eingriffe Dritter.",
@@ -197,25 +202,43 @@ export function startApp(){
   const NR_KEY = { job:"preJob", rechnung:"preRe", angebot:"preAn", kva:"preKv" };
   function nrPrefix(kind, f=S.firma){ const v=f[NR_KEY[kind]]; return (v==null || String(v).trim()==="") ? NR_DEF[kind] : String(v).trim(); }
   const nrWithYear = (f=S.firma) => f.nrJahr !== false;
-  // Stamm einer neuen Nummer, z. B. "RE-2026-" (mit Jahr) oder "RE-" (ohne Jahr). Aufträge immer ohne Jahr.
-  function nrStem(kind, f=S.firma, y=new Date().getFullYear()){ const p=nrPrefix(kind,f); return kind!=="job" && nrWithYear(f) ? `${p}${y}-` : p; }
-  // höchste vergebene laufende Nummer zu genau diesem Stamm (andere/alte Formate zählen nicht mit)
-  function nrMax(list, stem){ let m=0; for(const x of list){ const n=String(x.nr||""); if(!n.startsWith(stem)) continue; const rest=n.slice(stem.length); if(/^\d+$/.test(rest)) m=Math.max(m, parseInt(rest,10)); } return m; }
-  function readNrForm(){ const t=id=>($("#"+id)?.value||"").replace(/\s+/g,"").toUpperCase(); return { preJob:t("cPreJob"), preRe:t("cPreRe"), preAn:t("cPreAn"), preKv:t("cPreKv"), nrJahr:$("#cNrJahr")?.checked!==false }; }
+  // Belegnummer, z. B. "RE-001/2026" (mit Jahr) oder "RE-001" (ohne Jahr). Aufträge immer ohne Jahr: "JOB-0001".
+  const nrSuffix = (kind, f=S.firma, y=new Date().getFullYear()) => kind!=="job" && nrWithYear(f) ? `/${y}` : "";
+  function fmtNr(kind, n, f=S.firma, y=new Date().getFullYear()){ return nrPrefix(kind,f) + (kind==="job" ? pad4(n) : String(n).padStart(3,"0")) + nrSuffix(kind,f,y); }
+  // höchste vergebene laufende Nummer in genau diesem Format (andere/alte Formate zählen nicht mit)
+  function nrMax(list, kind, f=S.firma, y=new Date().getFullYear()){ const p=nrPrefix(kind,f), s=nrSuffix(kind,f,y); let m=0;
+    for(const x of list){ const n=String(x.nr||""); if(!n.startsWith(p) || !n.endsWith(s) || n.length<=p.length+s.length) continue; const rest=n.slice(p.length, n.length-s.length); if(/^\d+$/.test(rest)) m=Math.max(m, parseInt(rest,10)); } return m; }
+  function readNrForm(){ const t=id=>($("#"+id)?.value||"").replace(/\s+/g,"").toUpperCase(), o={ preJob:t("cPreJob"), preRe:t("cPreRe"), preAn:t("cPreAn"), preKv:t("cPreKv"), nrJahr:$("#cNrJahr")?.checked!==false };
+    const st=parseInt(t("cReStart"),10); if($("#cReStart")) Object.assign(o, st>1 ? { reStart:st, reStartYear:new Date().getFullYear() } : { reStart:0, reStartYear:0 }); return o; }
   // laufende Nummer = höchste bisher vergebene (egal mit welchem Kürzel) + 1; mit Jahreszahl nur Belege aus diesem Jahr
   function runNo(list, y){ return Math.max(0, ...list.map(x=>seqNo(x.nr, y))); }
-  function freeNr(stem, n, list){ const taken=new Set(list.map(x=>String(x.nr||""))); let nr; do{ nr=stem+pad4(n++); }while(taken.has(nr)); return nr; }
-  const nextJobNrFor = f => freeNr(nrStem("job",f), 1+Math.max(runNo(S.auftraege,-1), nrMax(S.auftraege, nrStem("job",f))), S.auftraege);
+  function freeNr(kind, n, list, f=S.firma, y=new Date().getFullYear()){ const taken=new Set(list.map(x=>String(x.nr||""))); let nr; do{ nr=fmtNr(kind,n++,f,y); }while(taken.has(nr)); return nr; }
+  const nextJobNrFor = f => freeNr("job", 1+Math.max(runNo(S.auftraege,-1), nrMax(S.auftraege,"job",f)), S.auftraege, f);
   const nextJobNr = () => nextJobNrFor(S.firma);
   const dTyp = r => r.typ || "rechnung";
+  // Erstellte Rechnungen (mit Nummer) sind gesperrt: nicht löschen, nicht ändern – korrigiert wird nur per Storno
+  const docLocked = r => dTyp(r)==="rechnung" && !!r.nr;
   const dKu = r => r.ku ?? r.kleinunternehmer ?? (r.mwst===0 && !!S.firma.kleinunternehmer);
   const dMwst = r => dKu(r) ? 0 : (r.mwst ?? 19);
   const dBrutto = r => r.brutto ?? true;
-  function nextNr(typ, f=S.firma){ const y=new Date().getFullYear(); const stem=nrStem(typ,f,y);
+  // laufende Nummer, die als Nächstes dran ist (nur aus den Daten auf diesem Gerät)
+  function nextSeq(typ, f=S.firma, y=new Date().getFullYear()){
     const all=S.rechnungen.filter(r=>dTyp(r)===typ && r.nr), scope = nrWithYear(f) ? all.filter(r=>(r.datum||"").startsWith(String(y))) : all;
-    const used=Math.max(runNo(scope, y), nrMax(all, stem));
-    const start = typ==="rechnung" && +f.reStartYear===y ? (+f.reStart||1)-1 : 0; return freeNr(stem, 1+Math.max(used,start), all); }
-  const shownNr = r => r.nr || `${nrStem(dTyp(r))}····`;
+    const used=Math.max(runNo(scope, y), nrMax(all, typ, f, y));
+    const start = typ==="rechnung" && +f.reStartYear===y ? (+f.reStart||1)-1 : 0; return 1+Math.max(used,start); }
+  function nextNr(typ, f=S.firma){ const y=new Date().getFullYear(); return freeNr(typ, nextSeq(typ,f,y), S.rechnungen.filter(r=>dTyp(r)===typ && r.nr), f, y); }
+  const shownNr = r => r.nr || `${nrPrefix(dTyp(r))}···${nrSuffix(dTyp(r))}`;
+  // Belegnummer über den gemeinsamen Zähler in der Cloud vergeben – Laden und Website zählen dieselbe Reihe.
+  // Ohne Cloud-Konto zählt nur dieses Gerät. Mit Cloud-Konto, aber ohne Netz: Fehler → Beleg bleibt Entwurf.
+  async function reserveNr(typ){
+    const f=S.firma, y=new Date().getFullYear(), list=S.rechnungen.filter(r=>dTyp(r)===typ && r.nr);
+    if(!cloudOn()) return nextNr(typ);
+    if(navigator.onLine===false) throw new Error("offline");
+    const c=await sbClient();
+    const { data, error }=await withTimeout(c.rpc("wb_naechste_nr", { p_kind:typ, p_jahr:nrWithYear(f)?y:0, p_min:nextSeq(typ,f,y) }), 15000, "offline");
+    if(error){ if(error.code==="PGRST202"){ console.warn("wb_naechste_nr fehlt – Nummer nur lokal vergeben"); return nextNr(typ); } throw error; }
+    return freeNr(typ, +data, list, f, y);
+  }
   /* Steuer-Modus: A = Kleinunternehmer, B = Regelbesteuerung Brutto-Eingabe, C = Regelbesteuerung Netto-Eingabe */
   const TAXM = {
     ku:{k:"A", t:"Kleinunternehmer (§ 19 UStG)", s:"Keine Umsatzsteuer – der eingegebene Preis ist der Endpreis."},
@@ -774,7 +797,10 @@ export function startApp(){
       if(a==="selAll" && UI.sel){ const vis=UI.selVis[UI.sel.kind].map(x=>x.id); const all=vis.length && vis.every(id=>UI.sel.ids.has(id)); UI.sel.ids = all ? new Set() : new Set(vis); UI.sel.confirm=false; render(); return; }
       if(a==="selDel" && UI.sel?.ids.size){ UI.sel.confirm=true; render(); return; }
       if(a==="selNo" && UI.sel){ UI.sel.confirm=false; render(); return; }
-      if(a==="selYes" && UI.sel){ const {kind, ids}=UI.sel; const n=ids.size; UI.sel=null; removeMany(kind,[...ids]); toast(`${n} ${selWord(kind,n)} gelöscht`); return; }
+      if(a==="selYes" && UI.sel){ const {kind}=UI.sel; let ids=[...UI.sel.ids]; UI.sel=null;
+        const kept = kind==="rechnungen" ? ids.filter(id=>{ const r=S.rechnungen.find(x=>x.id===id); return r && docLocked(r); }) : [];
+        ids=ids.filter(id=>!kept.includes(id)); if(ids.length) removeMany(kind,ids); else render();
+        toast(`${ids.length} ${selWord(kind,ids.length)} gelöscht${kept.length?` · ${kept.length} erstellte Rechnung${kept.length===1?"":"en"} bleib${kept.length===1?"t":"en"} erhalten`:""}`); return; }
       if(a==="selStorno" && UI.sel){ const ids=UI.sel.ids; UI.sel=null; const list=S.rechnungen.filter(r=>ids.has(r.id) && dTyp(r)==="rechnung" && r.nr && !["entwurf","storniert"].includes(dStatus(r)));
         const upd=list.map(r=>({...r, status:"storniert", verlauf:[...(r.verlauf||[]), {t:nowStamp(), e:"Status: Storniert"}]})); delete upd.bezahlt;
         upd.forEach(o=>upsertLocal("rechnungen",o)); lsSave(); render();
@@ -885,10 +911,12 @@ export function startApp(){
   $("#vClose").onclick=closeViewer; $("#vIn").onclick=()=>zoomViewer(1); $("#vOut").onclick=()=>zoomViewer(-1);
 
   /* ---------- position editor (shared) ---------- */
+  let POS_IMEI="";   // IMEI des Belegs im Editor (für die Zeile „Serien-/IMEI-Nr.“ bei neuen Ersatzteil-Positionen)
   function einhOpts(sel){ const s=sel||"Stk."; const list=EINH.some(e=>e[0]===s)?EINH:[...EINH,[s,s]]; return list.map(([k,l])=>`<option value="${esc(k)}" ${k===s?"selected":""}>${esc(l)} (${esc(k)})</option>`).join(""); }
   function posRow(p={}){
     return `<div class="pcard" ${p.teilId?`data-teil="${p.teilId}"`:""}>
       <div class="prow1"><input class="pt" placeholder="Titel der Position" value="${esc(p.bez)}" aria-label="Titel der Position"><button class="x" type="button" aria-label="Position entfernen">×</button></div>
+      <textarea class="pd" rows="${String(p.text||"").split("\n").length>1?2:1}" placeholder="Beschreibung unter dem Titel (optional)" aria-label="Beschreibung der Position">${esc(p.text||"")}</textarea>
       <div class="prow2"><label>Menge<input class="pm r" inputmode="decimal" value="${numIn(p.menge??1)}"></label><label>Einheit<select class="pe">${einhOpts(p.einheit)}</select></label><label><span class="pplbl">${priceLabel()}</span><input class="pp r" inputmode="decimal" placeholder="0,00" value="${numIn(p.preis)}"></label></div>
       <div class="ptot">${eur((+p.menge||0)*(+p.preis||0))}</div><div class="ptax tm-${posTax().m}">${posTaxNote((+p.menge||0)*(+p.preis||0))}</div></div>`;
   }
@@ -910,11 +938,16 @@ export function startApp(){
     const add=p=>{ rows.insertAdjacentHTML("beforeend",posRow(p)); upd(); };
     $("#addPos").onclick=()=>{ add({menge:1,einheit:"Stk."}); rows.lastElementChild.querySelector(".pt").focus(); };
     $("#addLabor").onclick=()=>add({bez:"Arbeitszeit / Reparatur", menge:1, einheit:"psch.", preis:S.firma.pauschale??39});
-    const at=$("#addTeil"); if(at) at.onchange=()=>{ const t=S.teile.find(x=>x.id===at.value); if(t) add({bez:t.bez+(t.artnr?` (${t.artnr})`:""), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); at.value=""; };
+    // Ersatzteil = Reparatur zum Festpreis – gleiches Muster wie auf der Website (rechnungPdf.js)
+    const at=$("#addTeil"); if(at) at.onchange=()=>{ const t=S.teile.find(x=>x.id===at.value); if(t){
+      const imei=($("#fImei")?.value ?? POS_IMEI ?? "").trim(), dienst=t.kategorie==="Dienstleistung";
+      add(dienst ? {bez:t.bez, menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}
+        : {bez:positionsTitel(t.bez,"",""), text:positionsText(t.garantie||S.firma.garantie||GARANTIE_STANDARD, imei), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); }
+      at.value=""; };
     rows.oninput=upd; rows.onchange=upd;
     rows.onclick=e=>{ if(e.target.classList.contains("x")){ e.target.closest(".pcard").remove(); upd(); } };
   }
-  function readPos(){ return $$("#posRows .pcard").map(r=>({bez:$(".pt",r).value.trim(), menge:parseNum($(".pm",r).value), einheit:$(".pe",r).value, preis:parseNum($(".pp",r).value), ...(r.dataset.teil?{teilId:r.dataset.teil}:{})})).filter(p=>p.bez||p.preis); }
+  function readPos(){ return $$("#posRows .pcard").map(r=>{ const tx=($(".pd",r)?.value||"").trim(); return {bez:$(".pt",r).value.trim(), ...(tx?{text:tx}:{}), menge:parseNum($(".pm",r).value), einheit:$(".pe",r).value, preis:parseNum($(".pp",r).value), ...(r.dataset.teil?{teilId:r.dataset.teil}:{})}; }).filter(p=>p.bez||p.preis); }
 
   function kundeSelect(sel, idp){
     const kOpts = [...S.kunden].sort((x,y)=>x.name.localeCompare(y.name,"de")).map(k=>`<option value="${k.id}" ${sel===k.id?"selected":""}>${esc(k.name)}</option>`).join("");
@@ -1045,7 +1078,7 @@ export function startApp(){
     return d;
   }
   function renderEditor(d, isEdit){
-    const T=TYP[d.typ]; POS_TAX={m:docTaxMode(d), p:dKu(d)?0:(d.mwst??19)};
+    const T=TYP[d.typ]; POS_TAX={m:docTaxMode(d), p:dKu(d)?0:(d.mwst??19)}; POS_IMEI=d.imei||"";
     const jobs=S.auftraege.filter(a=>!d.kundeId || a.kundeId===d.kundeId).sort((x,y)=>(y.created||"").localeCompare(x.created||""));
     const jOpts=jobs.map(a=>`<option value="${a.id}" ${d.auftragId===a.id?"selected":""}>#${esc(a.nr)} · ${esc(a.geraet)}</option>`).join("");
     const title = isEdit ? `${T.l} bearbeiten` : ({rechnung:"Neue Rechnung", angebot:"Neues Angebot", kva:"Neuer Kostenvoranschlag"})[d.typ];
@@ -1106,14 +1139,18 @@ export function startApp(){
       renderEditor(d,isEdit); });
     $("#eKunde").onchange=()=>{ collectEditor(d); keepK(); renderEditor(d,isEdit); };
     $("#eAuftrag").onchange=()=>{ collectEditor(d); keepK(); const a=S.auftraege.find(x=>x.id===d.auftragId); if(a){ d.kundeId=a.kundeId||d.kundeId; d.geraet=a.geraet; d.imei=a.imei||""; d.leistung=a.erledigt||d.leistung; if(!d.positionen.length) d.positionen=(a.positionen||[]).map(p=>({einheit:"Stk.",...p})); } renderEditor(d,isEdit); };
-    const finish=(make)=>{
+    const finish=async(make)=>{
       collectEditor(d);
       if(d._kErr){ toast(d._kErr); return; }
       if(make){ if(!d.kundeId){ toast("Bitte einen Kunden wählen"); $("#eKunde").focus(); return; } if(!d.positionen.length){ toast("Bitte mindestens eine Position eintragen"); return; } }
+      let nr="";
+      if(make){ const b=$("#eMake"); if(b) b.disabled=true;
+        try{ nr=await reserveNr(d.typ); }
+        catch(e){ if(b) b.disabled=false; make=false; toast(navigator.onLine===false || /offline/.test(e?.message||"") ? "Keine Internetverbindung – die Nummer wird online vergeben. Als Entwurf gespeichert." : "Nummer konnte nicht vergeben werden – als Entwurf gespeichert. Bitte später erneut erstellen."); } }
       if(d._kundeNeu) save("kunden", d._kundeNeu);
       const out={...d}; delete out._kundeNeu; delete out._kErr; delete out.bezahlt; delete out.kleinunternehmer;
       if(make){
-        out.nr=nextNr(out.typ); out.status="offen"; out.verlauf=[...(out.verlauf||[]), {t:nowStamp(), e:"Erstellt"}];
+        out.nr=nr; out.status="offen"; out.verlauf=[...(out.verlauf||[]), {t:nowStamp(), e:"Erstellt"}];
         if(out.typ==="rechnung") for(const p of out.positionen) if(p.teilId){ const t=S.teile.find(x=>x.id===p.teilId); if(t && t.kategorie!=="Dienstleistung") save("teile",{...t,bestand:Math.max(0,(+t.bestand||0)-(+p.menge||0))}); }
         if(out.ausDoc){ const src=S.rechnungen.find(x=>x.id===out.ausDoc); if(src && dStatus(src)!=="akzeptiert") save("rechnungen",{...src,status:"akzeptiert",verlauf:[...(src.verlauf||[]),{t:nowStamp(),e:`In Rechnung ${out.nr} übernommen`}]}); }
       } else if(!out.verlauf.length) out.verlauf=[{t:nowStamp(), e:"Entwurf angelegt"}];
@@ -1165,7 +1202,8 @@ export function startApp(){
         <div class="btnrow"><button class="btn soft" id="dPdf">${ico.share} PDF speichern / teilen</button></div>
         <div id="dThumb" style="margin-top:6px">${paperBox(r)}</div>
         <span style="color:var(--muted)">Zum Vergrößern auf das Blatt tippen.</span></div>
-      <button class="btn danger" id="dDel">${st==="entwurf"?"Entwurf löschen":"Löschen"}</button><div id="delConfirm"></div>
+      ${docLocked(r) ? `<div class="hint"><span><b>Erstellte Rechnungen lassen sich nicht löschen.</b> Zum Korrigieren den Status „Storniert“ setzen und eine neue Rechnung erstellen – die stornierte bleibt zur Nachweisführung erhalten (10 Jahre).</span></div>`
+        : `<button class="btn danger" id="dDel">${st==="entwurf"?"Entwurf löschen":"Löschen"}</button>`}<div id="delConfirm"></div>
     `, null, "", { cancelLabel:"Zurück", foot: st==="entwurf"
         ? `<button class="btn accent wide" id="dMake">${T.make}</button>`
         : `<button class="btn ghost wide" id="dStatus">${ico.sync} Status ändern</button>` });
@@ -1186,7 +1224,7 @@ export function startApp(){
       const subs = {offen:"Erstellt, noch nicht verschickt", versendet:"An den Kunden geschickt", bezahlt:"Geld ist eingegangen (heute)", storniert:"Rechnung ungültig, bleibt zur Nachweisführung erhalten", akzeptiert:"Kunde hat zugesagt", abgelehnt:"Kunde hat abgesagt"};
       openPicker("Status ändern", opts.filter(s=>s!==(r.status||"offen")).map(s=>({label:DST[s], sub:subs[s], pill:s, value:s})), o=>setDocStatus(r,o.value));
     };
-    $("#dDel").onclick=()=>confirmBox(st==="entwurf"?"Diesen Entwurf löschen?":`${T.l} ${esc(r.nr)} wirklich löschen? Bei verschickten Rechnungen besser den Status „Storniert“ setzen.`, ()=>{ remove("rechnungen",r.id); closeSheet(); toast("Gelöscht"); });
+    const dl=$("#dDel"); if(dl) dl.onclick=()=>confirmBox(st==="entwurf"?"Diesen Entwurf löschen?":`${T.l} ${esc(r.nr)} wirklich löschen?`, ()=>{ remove("rechnungen",r.id); closeSheet(); toast("Gelöscht"); });
   }
   function setDocStatus(r, s){
     const o={...r, status:s, verlauf:[...(r.verlauf||[]), {t:nowStamp(), e:`Status: ${DST[s]}`}]};
@@ -1216,7 +1254,9 @@ export function startApp(){
 
   /* ---------- A4 paper ---------- */
   const berichtOf = r => { if(r.berichtAus) return ""; const a=r.auftragId && S.auftraege.find(x=>x.id===r.auftragId); return a?.bericht && dTyp(r)==="rechnung" ? a.bericht : ""; };
-  const noteBody = (X,r) => [berichtOf(r) ? `<b>Durchgeführte Arbeiten</b><br>${esc(berichtOf(r)).replace(/\n/g,"<br>")}` : "", X.pay, r.notiz ? esc(r.notiz).replace(/\n/g,"<br>") : ""].filter(Boolean).join("<br><br>");
+  // Notiz auf dem Beleg. Die Zahlungsaufforderung der Website („Bitte bezahle …“) entfällt, sobald die Rechnung bezahlt ist.
+  const belegNotiz = r => (r.notiz && dStatus(r)==="bezahlt" && /^Bitte bezahle /.test(r.notiz)) ? "" : (r.notiz||"");
+  const noteBody = (X,r) => [berichtOf(r) ? `<b>Durchgeführte Arbeiten</b><br>${esc(berichtOf(r)).replace(/\n/g,"<br>")}` : "", X.pay, belegNotiz(r) ? esc(belegNotiz(r)).replace(/\n/g,"<br>") : ""].filter(Boolean).join("<br><br>");
   function kundenNr(k){ if(!k||!k.id) return k?.nr?String(k.nr):""; if(k.nr) return String(k.nr);
     const sorted=[...S.kunden].sort((a,b)=>(a.created||"").localeCompare(b.created||"")||a.id.localeCompare(b.id)); const i=sorted.findIndex(x=>x.id===k.id); return i<0?"":String(1001+i); }
   function nextKundenNr(){ return String(Math.max(1000, ...S.kunden.map(k=>parseInt(kundenNr(k))||0))+1); }
@@ -1251,7 +1291,7 @@ export function startApp(){
     const title=`<div class="title">${T.up} ${nrHtml}</div>`;
     const sub=r.geraet?`<div class="sub">Gerät: ${e(r.geraet)}${r.imei?` · IMEI/SN ${e(r.imei)}`:""}</div>`:"";
     const intro=`<div class="intro">${e(X.anrede)}<br>${X.intro}</div>`;
-    const row=(p,i)=>`<tr><td>${i}</td><td>${e(p.bez)}</td><td class="r">${numIn(p.menge)}</td><td class="c">${e(p.einheit||"Stk.")}</td><td class="r">${eur(p.preis)}</td><td class="r"><b>${eur(p.menge*p.preis)}</b></td></tr>`;
+    const row=(p,i)=>`<tr><td>${i}</td><td>${e(p.bez)}${p.text?`<br><small>${e(p.text).replace(/\n/g,"<br>")}</small>`:""}</td><td class="r">${numIn(p.menge)}</td><td class="c">${e(p.einheit||"Stk.")}</td><td class="r">${eur(p.preis)}</td><td class="r"><b>${eur(p.menge*p.preis)}</b></td></tr>`;
     const thead=`<thead><tr><th style="width:44px">Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="c">Einheit</th><th class="r">Einzelpreis</th><th class="r">Gesamt</th></tr></thead>`;
     const empty=`<tr><td colspan="6" style="color:var(--ink-2)">Noch keine Positionen</td></tr>`;
     let rows;
@@ -1262,7 +1302,7 @@ export function startApp(){
     } else rows=r.positionen.length?r.positionen.map((p,i)=>row(p,i+1)).join(""):empty;
     const table=`<div class="tbl"><table>${thead}<tbody>${rows}</tbody></table></div>`;
     const sum=`<div class="sum">${c.rab?`<div><span>Summe Positionen</span><span>${eur(c.sum)}</span></div><div><span>Rabatt (${numIn(r.rabatt)} %)</span><span>− ${eur(c.rab)}</span></div>`:""}${c.p?`<div><span>Zwischensumme (netto)</span><span>${eur(c.netto)}</span></div><div><span>MwSt. (${numIn(c.p)} %)</span><span>${eur(c.mwst)}</span></div>`:""}<div class="g"><span>${c.p?"Gesamtbetrag (brutto)":"Gesamtbetrag"}</span><span>${eur(c.brutto)}</span></div></div>`;
-    const note=`<div class="note">${X.klein?"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.<br>":""}${noteBody(X,r)}</div>`;
+    const note=`<div class="note">${garantieHinweis(r.positionen)?e(garantieHinweis(r.positionen))+"<br>":""}${X.klein?"Gemäß § 19 UStG wird keine Umsatzsteuer berechnet.<br>":""}${noteBody(X,r)}</div>`;
     const greet=`<div class="greet">Mit freundlichen Grüßen<b>${e(f.name||"")}</b></div>`;
     const haft=sigPaper(r)+(f.haftung?`<div class="haft">${e(f.haftung).replace(/\n/g,"<br>")}</div>`:"");
     const foot=`<div class="foot"><div>${e(f.name)}<br>${br(D.firm)}</div><div>${f.bank?e(f.bank)+"<br>":""}${f.iban?"IBAN "+e(f.iban)+"<br>":""}${f.bic?"BIC "+e(f.bic):""}</div><div>${f.tel?"Tel. "+e(f.tel)+"<br>":""}${f.stnr?"Steuernr. "+e(f.stnr)+"<br>":""}${f.ustid?"USt-IdNr. "+e(f.ustid):""}</div></div>`;
@@ -1271,26 +1311,30 @@ export function startApp(){
     const body=(withSub=true)=>`${withSub?sub:""}${intro}${table}${sum}${note}${greet}<div class="spacer"></div>${haft}`;
     const devbox = (D.devItems.length||D.problem) ? `<div class="devbox"><div class="dv-grid">${D.devItems.map(([a,b])=>`<div><label>${a}</label><b>${e(b)}</b></div>`).join("")}</div>${D.problem?`<div class="dv-prob"><label>Fehlerbeschreibung</label>${e(D.problem)}</div>`:""}</div>` : "";
 
-    if(lay==="neutral"){ const N=neutralData(r,D);
-      const prow=(p,i)=>`<tr><td><div class="dd"><span class="n">${i+1}.</span><span class="d">${e(p.bez)}</span></div></td><td class="r">${qtyTxt(p.menge)} ${e(p.einheit||"Stk.")}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
-      const srow=(a,b,cls="")=>`<tr class="${cls}"><td colspan="3">${a}</td><td class="r">${b}</td></tr>`;
-      const tax = c.p ? srow(`zzgl. Umsatzsteuer ${numIn(c.p)} %`, eurTxt(c.mwst)) : srow(dKu(r)?"Umsatzsteuer nicht erhoben gemäß § 19 UStG.":"Umsatzsteuer 0 %", "");
-      const cols=[[["",f.name],["",f.strasse],["",[f.plz,f.ort].filter(Boolean).join(" ")]],[["Tel",f.tel],["Mail",f.mail]],[["Bank",f.bank],["IBAN",f.iban],["BIC",f.bic]],[["St.-Nr.",f.stnr],["USt-ID",f.ustid]]]
-        .map(cl=>cl.filter(x=>x[1])).filter(cl=>cl.length);
+    if(lay==="neutral"){ const B=neutralDaten(r,D), s=B.summen, N=neutralData(r,D);   // gleicher Aufbau wie rechnungPdf.js
+      const z2=n=>new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2}).format(+n||0), ein=u=>String(u||"Stk.").replace(/^(Stk|Std)\.$/,"$1");
+      const prow=(p,i)=>`<tr><td>${i+1}.</td><td><b>${e(p.bez)}</b>${p.text?`<br>${e(p.text).replace(/\n/g,"<br>")}`:""}</td><td class="r">${z2(p.menge)} ${e(ein(p.einheit))}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
+      const srow=(a,b,cls="")=>`<tr class="${cls}"><td></td><td colspan="3">${a}</td><td class="r">${b}</td></tr>`;
+      const tax = s.mwst ? srow(`zzgl. Umsatzsteuer ${numIn(s.mwstSatz)} %`, eurTxt(s.mwst)) : srow(s.ku?"Umsatzsteuer nicht erhoben gemäß §19UStG.":"Umsatzsteuer 0 %", "");
+      const meta=list=>list.filter(m=>m&&m[1]).map(([a,b])=>`<span>${e(a)}</span><span class="r">${e(b)}</span>`).join("");
+      const m2=meta(B.meta2);
       return `<div class="paper lay-neutral">${stamp}
         <div class="nt-logo">${logo}</div>
-        <div class="nt-head"><div><div class="nt-sender">${N.senderParts.map(e).join(' <i>→</i> ')}</div><div class="addr">${br(D.addr)}</div></div>
-          <div class="nt-meta">${N.meta.map(([a,b])=>`<span>${e(a)}</span><b>${e(b)}</b>`).join("")}</div></div>
-        <div class="nt-title"><b>${e(T.l)} Nr. ${nrHtml}</b><span>${deDate(r.datum)}</span></div>
-        <div class="nt-sub">${e(N.leist)}${r.geraet?`<br>Gerät: ${e(r.geraet)}${r.imei?` · IMEI/SN ${e(r.imei)}`:""}`:""}</div>
-        <table class="nt-tbl"><thead><tr><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
-          <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
-          <tbody class="nt-sum">${c.rab?srow("Summe Positionen",eurTxt(c.sum))+srow(`Rabatt (${numIn(r.rabatt)} %)`,"− "+eurTxt(c.rab)):""}${srow("Gesamtbetrag netto",eurTxt(c.netto),"g")}${tax}${srow("Gesamtbetrag brutto",`<b>${eurTxt(c.brutto)}</b>`,"g")}</tbody></table>
-        ${noteBody(X,r)?`<div class="nt-text">${noteBody(X,r)}</div>`:""}
-        <div class="nt-text">${e(N.thanks)}</div>
+        <div class="nt-head"><div><div class="nt-sender">${e([f.name,f.strasse,[f.plz,f.ort].filter(Boolean).join(" ")].filter(Boolean).join("  -  "))}</div><div class="addr">${br(B.empfaenger)}</div></div>
+          <div class="nt-meta"><div class="nt-nr"><span>${e(B.nrLabel)}</span><span class="r">${nrHtml}</span></div><div class="nt-mg">${meta(B.meta1)}</div>${m2?`<div class="nt-mg">${m2}</div>`:""}</div></div>
+        <div class="nt-title"><b>${e(T.l)} Nr. ${nrHtml}</b></div>
+        <div class="nt-sub">${B.unterzeile.filter(Boolean).map(e).join("<br>")}</div>
+        <table class="nt-tbl"><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
+          <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td></td><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
+          <tbody class="nt-sum">${s.rabatt?srow("Summe Positionen",eurTxt(s.summe))+srow(`Rabatt (${numIn(s.rabattSatz)} %)`,"− "+eurTxt(s.rabatt)):""}${srow("Gesamtbetrag netto",eurTxt(s.netto),"g")}${tax}${srow("<b>Gesamtbetrag brutto</b>",`<b>${eurTxt(s.brutto)}</b>`,"g")}</tbody></table>
+        ${garantieHinweis(B.positionen)?`<div class="nt-text">${e(garantieHinweis(B.positionen))}</div>`:""}
+        ${B.girocode ? (()=>{ const g=B.girocode, m=qrMatrix(giroCodeText(g)); let p=""; for(let y=0;y<m.n;y++) for(let x=0;x<m.n;x++) if(m.dark(y,x)) p+=`M${x} ${y}h1v1h-1z`;
+          return `<div class="nt-giro"><figure><svg viewBox="0 0 ${m.n} ${m.n}" shape-rendering="crispEdges"><path d="${p}"/></svg><figcaption>GiroCode<br>mit der Banking-App scannen</figcaption></figure>
+            <div><b>Bezahlen per Überweisung</b>${[["Empfänger",g.name],["IBAN",String(g.iban).replace(/\s+/g,"").replace(/(.{4})/g,"$1 ").trim()],["BIC",g.bic],["Betrag",eurTxt(g.betrag)],["Verwendungszweck",g.zweck]].filter(x=>x[1]).map(([a,b])=>`<span>${e(a)}</span><span>${e(b)}</span>`).join("")}</div></div>`; })() : ""}
+        ${B.texte.filter(Boolean).map(t=>`<div class="nt-text">${e(t).replace(/\n/g,"<br>")}</div>`).join("")}
         <div class="nt-greet">Mit freundlichen Grüßen<b>${N.nm?`<span>${e(N.nm[1])}</span><span class="b2">${e(N.nm[2])}</span>`:e(f.name||"")}</b></div>
-        <div class="spacer"></div>${haft}
-        <div class="nt-foot">${cols.map(cl=>`<div>${cl.map(([a,b])=>`<p>${a?`<i>${e(a)}</i>`:""}<b>${e(b)}</b></p>`).join("")}</div>`).join("")}</div></div>`; }
+        <div class="spacer"></div><div class="nt-page">1/1</div>
+        <div class="nt-foot">${fussSpalten(B.firma).map(cl=>`<div>${cl.map(z=>`<p>${e(z)}</p>`).join("")}</div>`).join("")}</div></div>`; }
     if(lay==="minimal") return `<div class="paper lay-minimal">${stamp}
       <div class="mn-top">${logo}<span class="mn-from">${e(D.sender)}</span></div>
       <div class="mn-hero"><div><div class="mn-kicker">${T.l} · ${nrHtml}</div><div class="mn-amount">${eur(c.brutto)}</div><div class="mn-due">${e(D.due)}</div></div>${meta}</div>
@@ -1313,7 +1357,7 @@ export function startApp(){
   function sampleDoc(){
     const real=[...S.rechnungen].filter(r=>dTyp(r)==="rechnung"&&r.nr).sort((a,b)=>(b.datum||"").localeCompare(a.datum||""))[0];
     if(real) return {...real, status:S.firma.stempel?"bezahlt":real.status, bezahltAm:real.bezahltAm||today()};
-    return { typ:"rechnung", nr:`RE-${new Date().getFullYear()}-0001`, status:S.firma.stempel?"bezahlt":"offen", bezahltAm:today(), _kundeNeu:{name:"Max Mustermann (Beispiel)", strasse:"Hauptstraße 5", plz:"12345", ort:"Musterstadt"},
+    return { typ:"rechnung", nr:fmtNr("rechnung",1), status:S.firma.stempel?"bezahlt":"offen", bezahltAm:today(), _kundeNeu:{name:"Max Mustermann (Beispiel)", strasse:"Hauptstraße 5", plz:"12345", ort:"Musterstadt"},
       geraet:"iPhone X – Ladebuchse", imei:"35 291611 482736 4", datum:today(), leistung:today(), faellig:addDays(today(),+(S.firma.ziel??14)), mwst:S.firma.kleinunternehmer?0:19, brutto:!S.firma.netto, rabatt:0, notiz:defaultNote("rechnung"),
       positionen:[{bez:"Ladebuchse iPhone X",menge:1,einheit:"Stk.",preis:29},{bez:"Arbeitszeit / Reparatur",menge:1,einheit:"psch.",preis:S.firma.pauschale??39}] };
   }
@@ -1328,9 +1372,29 @@ export function startApp(){
       if(r.nr && r.id){ const cur=S.rechnungen.find(x=>x.id===r.id); if(cur) save("rechnungen",{...cur, verlauf:[...(cur.verlauf||[]),{t:nowStamp(),e:"PDF gespeichert"}]}); } }
     catch(e){ if(e && !["cancelled","declined","aborted"].includes(e.code)) toast("PDF konnte nicht gespeichert werden"); }
   }
+  // Schrift Open Sans fürs PDF (wie die Vorlage) – wird im Hintergrund nachgeladen, bis dahin Helvetica
+  let PDF_SCHRIFT=null; import("../assets/openSans.js").then(m=>{ PDF_SCHRIFT=m.default; }).catch(()=>{});
+  // Daten für das gemeinsame Layout „Neutral“ (rechnungPdf.js – dieselbe Datei nutzt die Website)
+  function neutralDaten(r, D){
+    const {f,c,t,T,X,k}=D, N=neutralData(r,D), byL=l=>N.meta.find(m=>m[0]===l);
+    const addr=[...D.addr]; if(addr.length && !k.land) addr.push("Deutschland");
+    const unter=[N.leist, r.geraet?`Gerät: ${r.geraet}${r.imei?"  ·  IMEI/SN "+r.imei:""}`:""];
+    return { logo:docLogo(), firma:{...f, land:f.land||"Deutschland"}, empfaenger:addr, titel:T.l, nrLabel:`${T.l}s-Nr.`, nr:shownNr(r),
+      meta1:[byL(t==="rechnung"?"Rechnungsdatum":"Datum"), byL("Lieferdatum"), byL("Gültig bis")],
+      meta2:[r.websiteAuftrag?["Auftrag", r.websiteAuftrag]:null, byL("Ihre Kundennummer"), byL("Ihr Ansprechpartner")],
+      unterzeile:unter, positionen:r.positionen,
+      summen:{ netto:c.netto, brutto:c.brutto, mwst:c.mwst, mwstSatz:c.p, rabatt:c.rab, rabattSatz:r.rabatt, summe:c.sum, ku:dKu(r) },
+      texte:[X.pay, belegNotiz(r), N.thanks, f.haftung], gruss:f.name, schrift:PDF_SCHRIFT, qr:qrMatrix,
+      // GiroCode nur auf offenen Rechnungen mit Nummer
+      girocode: t==="rechnung" && r.nr && !["bezahlt","storniert"].includes(dStatus(r)) && f.iban && c.brutto>0
+        ? { name:f.kontoinhaber||f.inhaber||f.ansprechpartner||f.name, iban:f.iban, bic:f.bic, betrag:c.brutto, zweck:r.nr } : null };
+  }
   function buildPdfDoc(r){
     const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"mm",format:"a4"});
     const D=docParts(r), {f,c,t,T,X,job}=D, lay=pdfLayout();
+    if(lay==="neutral"){ zeichneRechnung(doc, neutralDaten(r,D));
+      if(X.stamp){ try{ doc.setPage(1); doc.saveGraphicsState(); doc.setGState(new doc.GState({opacity:.28})); doc.setTextColor(29,125,69); doc.setFont("helvetica","bold"); doc.setFontSize(46); doc.text("BEZAHLT",118,132,{angle:14}); doc.setFontSize(13); if(r.bezahltAm) doc.text(`am ${deDate(r.bezahltAm)}`,132,136,{angle:14}); doc.restoreGraphicsState(); }catch(e){} }
+      return doc; }
     const NAVY=[12,35,64], GREY=[93,102,115], INK=[21,27,36], LINE=[222,226,231], TINT=[238,243,248], WHITE=[255,255,255];
     const ACC=hexRgb((ACCENTS[f.akzent]||ACCENTS.repair).c), ACCT=ACC.map(v=>Math.round(255-(255-v)*.12));
     const txt=(s,x,yy,o)=>doc.text(Array.isArray(s)?s:String(s??""),x,yy,o);
@@ -1388,7 +1452,7 @@ export function startApp(){
     const ensure=(need,inTable)=>{ if(y+need>bottom){ doc.addPage(); pageDeco(false); y=CFG.contTop||25; if(inTable) tableHead(); } };
     function posRows(list,n){
       const cx=cols(), dw=(cx.menge-9)-cx.desc;
-      list.forEach(p=>{ fnt("normal",FS); const ls=doc.splitTextToSize(p.bez||"",dw); ensure(ls.length*RH()+2,true);
+      list.forEach(p=>{ fnt("normal",FS); const ls=[p.bez||"", ...String(p.text||"").split("\n").filter(Boolean)].flatMap(z=>doc.splitTextToSize(z,dw)); ensure(ls.length*RH()+2,true);
         col(INK); txt(String(++n),cx.pos,y); txt(ls,cx.desc,y); txt(numIn(p.menge),cx.menge,y,{align:"right"}); txt(p.einheit||"Stk.",cx.einh,y,{align:"center"}); txt(eur(p.preis),cx.ep,y,{align:"right"});
         fnt("bold",FS); txt(eur(p.menge*p.preis),cx.ges,y,{align:"right"}); fnt("normal",FS);
         y+=ls.length*RH()+CFG.rowGap; doc.setDrawColor(...(CFG.rowLine||[228,231,235])); doc.setLineWidth(.2); doc.line(L,y-RH()+.4,R,y-RH()+.4); });
@@ -1429,7 +1493,7 @@ export function startApp(){
       y+=h+5; col(INK);
     }
     function notesGreet(){
-      const arr=[...(X.klein?["Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."]:[]), ...(X.pay?[X.pay]:[]), ...(r.notiz?[...(X.pay?[""]:[]), r.notiz]:[])];
+      const arr=[...(garantieHinweis(r.positionen)?[garantieHinweis(r.positionen)]:[]), ...(X.klein?["Gemäß § 19 UStG wird keine Umsatzsteuer berechnet."]:[]), ...(X.pay?[X.pay]:[]), ...(belegNotiz(r)?[...(X.pay?[""]:[]), belegNotiz(r)]:[])];
       fnt("normal",FS); col(INK);
       arr.forEach(n=>{ const ls=n?doc.splitTextToSize(n,R-L):[""]; ensure(ls.length*RH(),false); txt(ls,L,y); y+=ls.length*RH(); });
       y += lay==="kompakt"?5:8; ensure(12,false); txt("Mit freundlichen Grüßen",L,y); fnt("bold",FS); txt(f.name||"",L,y+RH()+1.5); fnt("normal",FS);
@@ -1481,53 +1545,14 @@ export function startApp(){
       y=70; fnt("bold",16); col(NAVY); txt(T.up,L,y); fnt("normal",11); col(ACC); txt(nrTxt,L,y+6.5); y+=15;
       deviceLine();
     }
-    if(lay==="neutral"){
-      const N=neutralData(r,D), BLUE=[41,170,225], FS2=8.3;
-      try{ const src=docLogo(), p=doc.getImageProperties(src), ra=p.width/p.height; let w=78,h=w/ra; if(h>24){h=24;w=h*ra;} doc.addImage(src, src.startsWith("data:image/png")?"PNG":"JPEG", (210-w)/2, 13, w, h); }
-      catch(e){ fnt("bold",18); col(NAVY); txt(f.name||"",105,24,{align:"center"}); }
-      // sender line with arrows
-      let x=L; const ys=57; fnt("bold",6.3); col(INK);
-      N.senderParts.forEach((pt,i)=>{ txt(pt,x,ys); x+=doc.getTextWidth(pt)+1.8;
-        if(i<N.senderParts.length-1){ doc.setDrawColor(...INK); doc.setLineWidth(.2); doc.line(x,ys-.8,x+2.6,ys-.8); doc.line(x+1.8,ys-1.5,x+2.6,ys-.8); doc.line(x+1.8,ys-.1,x+2.6,ys-.8); x+=4.4; } });
-      lines(D.addr,L,63.5,9,INK);
-      N.meta.forEach(([a,b],i)=>{ const yy=57.5+i*4.5; fnt("normal",5.9); col([74,79,87]); txt(a.toUpperCase(),120,yy,{charSpace:.35}); fnt("bold",7.2); col(INK); txt(b,155,yy); });
-      y=100; fnt("bold",13); col(INK); txt(`${T.l} Nr. ${nrTxt}`,L,y); fnt("normal",8.5); txt(deDate(r.datum),R-2,y,{align:"right"});
-      y+=8; fnt("normal",FS2); txt(N.leist,L,y); y+=4.2;
-      if(r.geraet){ txt(`Gerät: ${r.geraet}${r.imei?"  ·  IMEI/SN "+r.imei:""}`,L,y); y+=4.2; }
-      y+=2.5;
-      const cM=128, cE=158, cG=R-2, dw=(cM-24)-(L+10);
-      const nhead=()=>{ doc.setFillColor(228,228,228); doc.rect(L,y,R-L,7.5,"F"); fnt("bold",FS2); col(INK); txt("Beschreibung",L+2.5,y+5); txt("Menge",cM,y+5,{align:"right"}); txt("Einzelpreis",cE,y+5,{align:"right"}); txt("Gesamtpreis",cG,y+5,{align:"right"}); y+=7.5; };
-      nhead();
-      r.positionen.forEach((p,i)=>{ fnt("normal",FS2); const ls=doc.splitTextToSize(p.bez||"",dw); const h=ls.length*3.7+4.6;
-        if(y+h>bottom){ doc.addPage(); pageDeco(false); y=20; nhead(); }
-        if(i%2===1){ doc.setFillColor(241,241,241); doc.rect(L,y,R-L,h,"F"); }
-        col(INK); txt(`${i+1}.`,L+2.5,y+4.6); txt(ls,L+10,y+4.6); txt(`${qtyTxt(p.menge)} ${p.einheit||"Stk."}`,cM,y+4.6,{align:"right"}); txt(eurTxt(p.preis),cE,y+4.6,{align:"right"}); txt(eurTxt(p.menge*p.preis),cG,y+4.6,{align:"right"}); y+=h; });
-      const trow=(a,b,fill,bold)=>{ if(y+7.5>bottom){ doc.addPage(); pageDeco(false); y=20; } if(fill){ doc.setFillColor(236,236,236); doc.rect(L,y,R-L,7,"F"); } fnt("normal",FS2); col(INK); txt(a,L+2.5,y+4.7); if(b){ fnt(bold?"bold":"normal",FS2); txt(b,cG,y+4.7,{align:"right"}); } y+=7; };
-      if(c.rab){ trow("Summe Positionen",eurTxt(c.sum),false); trow(`Rabatt (${numIn(r.rabatt)} %)`,"− "+eurTxt(c.rab),false); }
-      trow("Gesamtbetrag netto",eurTxt(c.netto),true);
-      if(c.p) trow(`zzgl. Umsatzsteuer ${numIn(c.p)} %`,eurTxt(c.mwst),false); else trow(dKu(r)?"Umsatzsteuer nicht erhoben gemäß § 19 UStG.":"Umsatzsteuer 0 %","",false);
-      trow("Gesamtbetrag brutto",eurTxt(c.brutto),true,true);
-      y+=9; fnt("normal",FS2); col(INK);
-      [X.pay, r.notiz, N.thanks].filter(Boolean).forEach(pp=>{ const ls=doc.splitTextToSize(pp,R-L); if(y+ls.length*3.8>bottom){ doc.addPage(); pageDeco(false); y=20; } txt(ls,L,y); y+=ls.length*3.8+3; });
-      y+=1.5; if(y+8>bottom){ doc.addPage(); pageDeco(false); y=20; } txt("Mit freundlichen Grüßen",L,y); y+=3.9; fnt("bold",FS2);
-      if(N.nm){ col(INK); txt(N.nm[1],L,y); col(BLUE); txt(N.nm[2],L+doc.getTextWidth(N.nm[1]),y); } else { col(INK); txt(f.name||"",L,y); }
-      col(INK);
-    } else { intro(); positions(); y+=2; totals(); notesGreet(); }
+    intro(); positions(); y+=2; totals(); notesGreet();
 
     // ---- every page: stamp, liability note, footer
     const pages=doc.getNumberOfPages();
     for(let pg=1; pg<=pages; pg++){ doc.setPage(pg); const fy=CFG.foot;
       if(X.stamp && pg===1){ try{ doc.saveGraphicsState(); doc.setGState(new doc.GState({opacity:.28})); doc.setTextColor(29,125,69); fnt("bold",46); txt("BEZAHLT",lay==="side"?122:118,CFG.stampY,{angle:14}); fnt("bold",13); if(r.bezahltAm) txt(`am ${deDate(r.bezahltAm)}`,lay==="side"?136:132,CFG.stampY+4,{angle:14}); doc.restoreGraphicsState(); }catch(e){} }
       if(haftLines.length){ fnt("normal",7); col(GREY); txt(haftLines,L,(lay==="side"?fy-2:fy-7)-(haftLines.length-1)*3.2); }
-      if(lay==="neutral"){
-        doc.setDrawColor(213,217,223); doc.setLineWidth(.2); doc.line(L,fy-4,R,fy-4);
-        const cols=[[["",f.name],["",f.strasse],["",[f.plz,f.ort].filter(Boolean).join(" ")]],[["TEL",f.tel],["MAIL",f.mail]],[["BANK",f.bank],["IBAN",f.iban],["BIC",f.bic]],[["ST.-NR.",f.stnr],["UST-ID",f.ustid]]]
-          .map(cl=>cl.filter(x=>x[1])).filter(cl=>cl.length);
-        const xs=[L, L+40, L+80, L+134];
-        cols.forEach((cl,ci)=>cl.forEach(([a,b],i)=>{ const yy=fy+i*3.4; let x=xs[ci]||xs[3];
-          if(a){ fnt("normal",5.4); col([107,112,121]); txt(a,x,yy,{charSpace:.3}); x+= ci===3?11:9; }
-          fnt("bold",6.6); col(INK); txt(b,x,yy); }));
-      } else if(lay!=="side"){
+      if(lay!=="side"){
         doc.setDrawColor(...(lay==="minimal"?LINE:GREY)); doc.setLineWidth(.2); doc.line(L,fy-4,R,fy-4); fnt("normal",7.3); col(GREY);
         const cw=(R-L)/3;
         [[f.name,...D.firm],bankLines,[f.tel&&"Tel. "+f.tel,...taxLines].filter(Boolean)].forEach((cl,ci)=>cl.filter(Boolean).forEach((s,i)=>txt(s,L+ci*cw,fy+i*3.4)));
@@ -1565,11 +1590,12 @@ export function startApp(){
         <div class="field"><label for="tPreis">Verkaufspreis €</label><input id="tPreis" inputmode="decimal" placeholder="0,00" value="${numIn(t?.preis)}"></div>
         <div class="field"><label for="tEk">Einkaufspreis €</label><input id="tEk" inputmode="decimal" placeholder="optional" value="${numIn(t?.ek)}"></div>
         <div class="field"><label for="tBest">Bestand (Stk.)</label><input id="tBest" inputmode="numeric" placeholder="0" value="${numIn(t?.bestand)}"></div>
-        <div class="field"><label for="tLager">Lagerort</label><input id="tLager" placeholder="optional, z. B. Schublade 2" value="${esc(t?.lager)}"></div></div>
-        <p class="help">Wird ein Teil in eine Rechnung übernommen, sinkt der Bestand automatisch.</p></div>
+        <div class="field"><label for="tLager">Lagerort</label><input id="tLager" placeholder="optional, z. B. Schublade 2" value="${esc(t?.lager)}"></div>
+        <div class="field"><label for="tGar">Garantie</label><input id="tGar" placeholder="${esc(S.firma.garantie||GARANTIE_STANDARD)}" value="${esc(t?.garantie)}"></div></div>
+        <p class="help">Wird ein Teil in eine Rechnung übernommen, sinkt der Bestand automatisch. Auf dem Beleg steht darunter „inkl. Ersatzteil, Einbau &amp; Funktionstest · Garantie*“ – leer lassen = Standard-Garantie aus den Einstellungen, z. B. „lebenslange Garantie gegen Stickdrift“ für TMR-Sticks.</p></div>
       ${t?`<button class="btn danger" id="delT">Ersatzteil löschen</button>`:""}`, () => {
         const bez=val("tBez"); if(!bez){ toast("Bitte eine Bezeichnung eintragen"); $("#tBez").focus(); return false; }
-        save("teile",{...(t||{id:uid()}), bez, artnr:val("tArt"), preis:parseNum(val("tPreis")), ek:val("tEk")?parseNum(val("tEk")):"", bestand:parseNum(val("tBest")), lager:val("tLager"), kategorie:val("tKat")||"Artikel", einheit:val("tEinh")||"Stk."}); toast("Produkt gespeichert"); });
+        save("teile",{...(t||{id:uid()}), bez, artnr:val("tArt"), preis:parseNum(val("tPreis")), ek:val("tEk")?parseNum(val("tEk")):"", bestand:parseNum(val("tBest")), lager:val("tLager"), kategorie:val("tKat")||"Artikel", einheit:val("tEinh")||"Stk.", garantie:val("tGar")}); toast("Produkt gespeichert"); });
     const d=$("#delT"); if(d) d.onclick=()=>{ remove("teile",t.id); closeSheet(); toast("Ersatzteil gelöscht"); };
   }
 
@@ -1620,7 +1646,8 @@ export function startApp(){
         <div class="field"><label for="cLogo">Neues Logo</label><input type="file" id="cLogo" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="text-align:left"></div>
         ${logo?`<div class="field"><button type="button" class="btn ghost sm" id="cLogoDel">Logo entfernen</button></div>`:""}</div>
         <p class="help">PNG oder JPG. Weiße Ränder werden automatisch abgeschnitten, damit das Logo oben links auf dem Beleg so groß wie möglich und unverzerrt erscheint.</p></div>
-      <div class="group"><span class="glabel">Bankverbindung</span><div class="box">${fld("cBank","Bank",f.bank,"z. B. Sparkasse")}${fld("cIban","IBAN",f.iban,"DE00 0000 0000 0000 0000 00","mono")}${fld("cBic","BIC",f.bic,"optional","mono")}</div></div>
+      <div class="group"><span class="glabel">Bankverbindung</span><div class="box">${fld("cBank","Bank",f.bank,"z. B. Sparkasse")}${fld("cIban","IBAN",f.iban,"DE00 0000 0000 0000 0000 00","mono")}${fld("cBic","BIC",f.bic,"optional","mono")}${fld("cKInh","Kontoinhaber",f.kontoinhaber,"Name wie bei der Bank, z. B. Oleg Schäfer")}</div>
+        <p class="help">Der Kontoinhaber steht im GiroCode (QR-Code zum Überweisen) auf der Rechnung. Er muss genau so lauten wie bei deiner Bank, sonst warnt die Banking-App des Kunden bei der Empfängerprüfung.</p></div>
       <div class="group"><span class="glabel">Steuer</span><div class="box">${fld("cStnr","Steuernummer",f.stnr,"123/456/78901","mono")}${fld("cUst","USt-IdNr.",f.ustid,"optional","mono")}
         <input type="checkbox" id="cKlein" hidden ${f.kleinunternehmer?"checked":""}><input type="checkbox" id="cNetto" hidden ${f.netto?"checked":""}></div>
         <span class="glabel tmhead">Steuer-Modus (Standard für neue Belege)</span>
@@ -1632,8 +1659,9 @@ export function startApp(){
         <div class="field"><label for="cPreAn">Angebote</label><input id="cPreAn" class="mono" maxlength="12" autocapitalize="characters" placeholder="AN-" value="${esc(f.preAn??"")}"></div>
         <div class="field"><label for="cPreKv">Kostenvoranschläge</label><input id="cPreKv" class="mono" maxlength="12" autocapitalize="characters" placeholder="KV-" value="${esc(f.preKv??"")}"></div>
         <div class="field"><label for="cNrJahr">Jahreszahl in Belegnummer</label><input type="checkbox" class="toggle" id="cNrJahr" ${f.nrJahr!==false?"checked":""}></div>
+        <div class="field"><label for="cReStart">Rechnungen ${new Date().getFullYear()} starten bei</label><input id="cReStart" class="mono" inputmode="numeric" placeholder="1" value="${+f.reStartYear===new Date().getFullYear() && +f.reStart>1 ? esc(String(f.reStart)) : ""}"></div>
         <div class="kv" style="flex-direction:column;gap:6px"><span>Nächste Nummern</span><div id="nrPrev" class="mono"></div></div></div>
-        <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 0001.</p></div>
+        <p class="help">Leer lassen = Standard. Bestehende Aufträge und Belege behalten ihre Nummer. Die laufende Nummer zählt einfach weiter, auch wenn Sie ein Kürzel ändern. Mit Jahreszahl beginnt jedes neue Jahr wieder bei 001. „Starten bei“ gilt nur, solange noch keine höhere Nummer vergeben ist – z. B. 30, wenn die letzte Rechnung aus einem anderen Programm die 29 war.</p></div>
       <div class="group" id="grpKi"><span class="glabel">KI-Belegerkennung</span><div class="box">
         <div class="field"><label for="cKiProv">Belegerkennungs-Anbieter</label><select id="cKiProv">${Object.entries(KI_PROV).map(([k,p])=>`<option value="${k}" ${kiProv()===k?"selected":""}>${esc(p.l)}${k==="gemini"?" – eigener API-Key":k==="docai"?" – inklusive":""}</option>`).join("")}</select></div>
         <div data-kp="gemini">
@@ -1649,13 +1677,15 @@ export function startApp(){
         <p class="help" data-kp="gemini">Mit Key liest die KI beim Erfassen einer Ausgabe Händler, Datum, Rechnungs-Nr., Betrag und MwSt. aus. Dazu wird das Foto bzw. die PDF an Google gesendet – im kostenlosen Tarif darf Google die Inhalte zur Verbesserung seiner Dienste verwenden. Ohne Key oder bei einem Fehler nutzt die App automatisch die lokale Texterkennung. Den Key erstellen Sie in Google AI Studio; er wird nicht ins Backup geschrieben. Modell leer lassen = automatisch: Die App fragt Google, welche Modelle Ihr Key nutzen darf, und weicht bei Überlastung, Limit oder Zeitüberschreitung selbst auf das nächste aus.</p></div>
       <div class="group"><span class="glabel">Standards</span><div class="box">
         <div class="field"><label for="cZiel">Zahlungsziel (Tage)</label><input id="cZiel" inputmode="numeric" value="${f.ziel??14}"></div>
-        <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div></div></div>`, () => {
-        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
+        <div class="field"><label for="cPausch">Arbeitspauschale €</label><input id="cPausch" inputmode="decimal" value="${numIn(f.pauschale??39)}"></div>
+        <div class="field"><label for="cGar">Garantie (Standard)</label><input id="cGar" placeholder="${esc(GARANTIE_STANDARD)}" value="${esc(f.garantie||"")}"></div></div>
+        <p class="help">Steht bei Ersatzteil-Positionen in der zweiten Zeile. Bei einzelnen Produkten kann ein eigener Garantie-Text hinterlegt werden.</p></div>`, () => {
+        saveFirma({...S.firma, name:val("cName"), strasse:val("cStr"), plz:val("cPlz"), ort:val("cOrt"), tel:val("cTel"), mail:val("cMail"), ansprechpartner:val("cAnsp"), bank:val("cBank"), iban:val("cIban").toUpperCase(), bic:val("cBic").toUpperCase(), kontoinhaber:val("cKInh"), stnr:val("cStnr"), ustid:val("cUst"), kleinunternehmer:$("#cKlein").checked, netto:$("#cNetto").checked, ziel:parseInt(val("cZiel"))||14, pauschale:parseNum(val("cPausch")), garantie:val("cGar"), logo, geminiApiKey:val("cGemini"), geminiModel:val("cGemModel"), kiAnbieter:val("cKiProv")||"gemini", kiCfg:readKiCfg(), ...readNrForm()});
         toast("Firmendaten gespeichert"); });
     bindTaxMode("cTax", m=>{ $("#cKlein").checked = m==="ku"; $("#cNetto").checked = m==="netto"; });
     const nrUpd=()=>{ const f2={...S.firma, ...readNrForm()};
       $("#nrPrev").innerHTML=[["Auftrag",nextJobNrFor(f2)],["Rechnung",nextNr("rechnung",f2)],["Angebot",nextNr("angebot",f2)],["KVA",nextNr("kva",f2)]].map(([a,b])=>`<i>${a}</i><b>${esc(b)}</b>`).join(""); };
-    ["cPreJob","cPreRe","cPreAn","cPreKv"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
+    ["cPreJob","cPreRe","cPreAn","cPreKv","cReStart"].forEach(id=>$("#"+id).oninput=nrUpd); $("#cNrJahr").onchange=nrUpd; nrUpd();
     $("#cLogo").onchange=e=>{ const file=e.target.files[0]; if(!file) return; const rd=new FileReader(); rd.onload=()=>prepareLogo(rd.result, out=>{ logo=out; $("#lPrev img").hidden=false; $("#lPrev img").src=logo; $("#lInfo").textContent="Neues Logo – zum Übernehmen „Speichern“ tippen"; }); rd.readAsDataURL(file); };
     $("#cGemEye").onclick=()=>{ const i=$("#cGemini"); i.type = i.type==="password" ? "text" : "password"; };
     bindKiForm();
@@ -1720,8 +1750,8 @@ export function startApp(){
       if(kind==="kunden"){ const jobs=S.auftraege.filter(a=>UI.sel.ids.has(a.kundeId)).length, docs=S.rechnungen.filter(r=>UI.sel.ids.has(r.kundeId)).length;
         if(jobs||docs) extra=` ${[jobs?`${jobs} Auftr${jobs===1?"ag":"äge"}`:"", docs?`${docs} Beleg${docs===1?"":"e"}`:""].filter(Boolean).join(" und ")} bleiben erhalten, aber ohne Kunde.`; }
       else if(kind==="teile") extra=" Bereits erstellte Rechnungen bleiben unverändert.";
-      else { const fin=S.rechnungen.filter(r=>UI.sel.ids.has(r.id) && dTyp(r)==="rechnung" && r.nr && !["entwurf","storniert"].includes(dStatus(r))).length;
-        if(fin) extra=` Darunter ${fin} erstellte Rechnung${fin===1?"":"en"} – diese besser stornieren statt löschen (Aufbewahrungspflicht 10 Jahre).`; }
+      else { const fin=S.rechnungen.filter(r=>UI.sel.ids.has(r.id) && docLocked(r)).length;
+        if(fin) extra=` Darunter ${fin} erstellte Rechnung${fin===1?"":"en"} – diese werden nicht gelöscht (Aufbewahrungspflicht 10 Jahre), sondern können nur storniert werden.`; }
       return `<div class="selbar warn" role="alertdialog"><span class="n">${n} ${word} endgültig löschen?<small>${extra.trim()}</small></span><div class="btnrow"><button class="btn ghost sm" data-act="selNo">Abbrechen</button>${kind==="rechnungen" && extra ? `<button class="btn sm" data-act="selStorno">Stornieren</button>` : ""}<button class="btn danger sm" data-act="selYes">Löschen</button></div></div>`;
     }
     return `<div class="selbar"><button class="btn ghost sm" data-act="selAll">${all?"Keine":"Alle"} auswählen</button><span class="n">${n} ausgewählt</span><button class="btn danger sm" data-act="selDel" ${n?"":"disabled style='opacity:.45'"}>Löschen</button></div>`;
@@ -3476,7 +3506,7 @@ export function startApp(){
     const neu=recs.filter(r=>!exists(r)), dup=recs.length-neu.length;
     const newKunden=new Set(neu.filter(r=>r.kunde && !findK(r)).map(r=>normH(r.kunde))).size;
     const y=new Date().getFullYear(), seqMax=Math.max(0,...neu.filter(r=>r.datum.startsWith(String(y))).map(r=>seqNo(r.nr,y)));
-    const ownMax=nrMax(S.rechnungen.filter(d=>dTyp(d)==="rechnung"), nrStem("rechnung"));
+    const ownMax=nrMax(S.rechnungen.filter(d=>dTyp(d)==="rechnung"), "rechnung");
     const suggest = seqMax ? Math.max(seqMax, ownMax)+1 : 0;
     const sum=neu.reduce((s,r)=>s+r.brutto,0);
     const chips=IMPORT_FIELDS.rechnungen.filter(([k])=>map[k]!=null).map(([k,l])=>`<span class="mapchip"><b>${esc(l)}</b><span>← ${esc(rows[hi][map[k]])}</span></span>`).join("");
@@ -3487,7 +3517,7 @@ export function startApp(){
       <div class="group"><span class="glabel">Vorschau${recs.length>8?` (erste 8 von ${recs.length})`:""}</span><div class="box imprev">${prev}</div></div>
       <div class="card" style="gap:8px">
         <span>${neu.length} neu${dup?`, ${dup} schon vorhanden (werden übersprungen)`:""}${newKunden?` · ${newKunden===1?"1 neuer Kunde wird":newKunden+" neue Kunden werden"} angelegt`:""}.</span>
-        ${suggest?`<div class="lineform" style="border-top:1px solid var(--line);padding-top:10px"><span><b style="font-weight:600">Nummern fortsetzen</b><br><small style="color:var(--muted)">Neue Rechnungen in der Werkbank starten mit ${esc(nrStem("rechnung"))}${pad4(suggest)}, damit sie an Ihre sevdesk-Nummern anschließen.</small></span><input type="checkbox" class="toggle" id="imSeq" checked></div>`:""}
+        ${suggest?`<div class="lineform" style="border-top:1px solid var(--line);padding-top:10px"><span><b style="font-weight:600">Nummern fortsetzen</b><br><small style="color:var(--muted)">Neue Rechnungen in der Werkbank starten mit ${esc(fmtNr("rechnung",suggest))}, damit sie an Ihre sevdesk-Nummern anschließen.</small></span><input type="checkbox" class="toggle" id="imSeq" checked></div>`:""}
         <p class="help" style="margin:0">Übernommen werden Nummer, Datum, Kunde, Betrag, Steuersatz und Status. Die einzelnen Positionen stehen nicht in der sevdesk-Liste – jede Rechnung bekommt eine Sammelposition. Die Original-PDFs aus sevdesk bleiben Ihre Belege.</p></div>
     `, null, "", { foot:`<button class="btn accent wide" id="imGo" ${neu.length?"":"disabled style='opacity:.5'"}>${ico.upl} ${neu.length} Rechnung${neu.length===1?"":"en"} importieren</button>` });
     $("#imGo").onclick=()=>{
