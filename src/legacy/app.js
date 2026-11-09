@@ -5,7 +5,7 @@
  * wird zusätzlich der Konto-Speicher genutzt.
  */
 import BRAND_LOGO from "../assets/brandLogo.js";
-import { zeichneRechnung, fussSpalten, positionsTitel, positionsText, garantieHinweis, GARANTIE_STANDARD, giroCodeText } from "./rechnungPdf.js";
+import { zeichneRechnung, fussSpalten, positionsTitel, positionsText, leistungsArt, garantieHinweis, GARANTIE_STANDARD, giroCodeText } from "./rechnungPdf.js";
 import qrcode from "qrcode-generator";
 
 // QR-Matrix für den GiroCode (UTF-8, Fehlerkorrektur M – wie von der EPC-Richtlinie empfohlen)
@@ -940,9 +940,10 @@ export function startApp(){
     $("#addLabor").onclick=()=>add({bez:"Arbeitszeit / Reparatur", menge:1, einheit:"psch.", preis:S.firma.pauschale??39});
     // Ersatzteil = Reparatur zum Festpreis – gleiches Muster wie auf der Website (rechnungPdf.js)
     const at=$("#addTeil"); if(at) at.onchange=()=>{ const t=S.teile.find(x=>x.id===at.value); if(t){
-      const imei=($("#fImei")?.value ?? POS_IMEI ?? "").trim(), dienst=t.kategorie==="Dienstleistung";
+      // Reinigung und Glastausch haben auch als Dienstleistung eine Garantie-Zeile
+      const imei=($("#fImei")?.value ?? POS_IMEI ?? "").trim(), dienst=t.kategorie==="Dienstleistung" && !leistungsArt(t.bez)?.garantie;
       add(dienst ? {bez:t.bez, menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}
-        : {bez:positionsTitel(t.bez,"",""), text:positionsText(t.garantie||S.firma.garantie||GARANTIE_STANDARD, imei), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); }
+        : {bez:positionsTitel(t.bez,"",""), text:positionsText(t.garantie, imei, t.bez, S.firma.garantie), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); }
       at.value=""; };
     rows.oninput=upd; rows.onchange=upd;
     rows.onclick=e=>{ if(e.target.classList.contains("x")){ e.target.closest(".pcard").remove(); upd(); } };
@@ -1592,7 +1593,7 @@ export function startApp(){
         <div class="field"><label for="tBest">Bestand (Stk.)</label><input id="tBest" inputmode="numeric" placeholder="0" value="${numIn(t?.bestand)}"></div>
         <div class="field"><label for="tLager">Lagerort</label><input id="tLager" placeholder="optional, z. B. Schublade 2" value="${esc(t?.lager)}"></div>
         <div class="field"><label for="tGar">Garantie</label><input id="tGar" placeholder="${esc(S.firma.garantie||GARANTIE_STANDARD)}" value="${esc(t?.garantie)}"></div></div>
-        <p class="help">Wird ein Teil in eine Rechnung übernommen, sinkt der Bestand automatisch. Auf dem Beleg steht darunter „inkl. Ersatzteil, Einbau &amp; Funktionstest · Garantie*“ – leer lassen = Standard-Garantie aus den Einstellungen, z. B. „lebenslange Garantie gegen Stickdrift“ für TMR-Sticks.</p></div>
+        <p class="help">Wird ein Teil in eine Rechnung übernommen, sinkt der Bestand automatisch. Auf dem Beleg steht darunter „inkl. Ersatzteil, Einbau &amp; Funktionstest · Garantie*“ – leer lassen = Standard-Garantie aus den Einstellungen, z. B. „lebenslange Garantie gegen Stickdrift“ für TMR-Sticks. „keine“ = ohne Garantie-Zeile. Diagnose, Reinigung und Glastausch bekommen automatisch den passenden Text.</p></div>
       ${t?`<button class="btn danger" id="delT">Ersatzteil löschen</button>`:""}`, () => {
         const bez=val("tBez"); if(!bez){ toast("Bitte eine Bezeichnung eintragen"); $("#tBez").focus(); return false; }
         save("teile",{...(t||{id:uid()}), bez, artnr:val("tArt"), preis:parseNum(val("tPreis")), ek:val("tEk")?parseNum(val("tEk")):"", bestand:parseNum(val("tBest")), lager:val("tLager"), kategorie:val("tKat")||"Artikel", einheit:val("tEinh")||"Stk.", garantie:val("tGar")}); toast("Produkt gespeichert"); });

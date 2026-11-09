@@ -36,8 +36,21 @@ export const GARANTIE_HINWEIS = "* Es gelten unsere Garantiebedingungen: repair-
 export function positionsTitel(reparatur, geraet, ausfuehrung) {
   return [reparatur, geraet].map(s => String(s || "").trim()).filter(Boolean).join(" ") + (ausfuehrung ? " – " + String(ausfuehrung).trim() : "") + " (Festpreis)";
 }
-export function positionsText(garantie, imei) {
-  return [`inkl. Ersatzteil, Einbau & Funktionstest · ${String(garantie || GARANTIE_STANDARD).trim()}*`, imei ? `Serien-/IMEI-Nr.: ${String(imei).trim()}` : ""].filter(Boolean).join("\n");
+// Zeile 2 hängt von der Art der Leistung ab (Garantiebedingungen, Abschnitt 3) und wird am Namen erkannt.
+// Website: dieselben Texte in assets/daten.js (window.GARANTIE) – bei Änderungen beide anpassen.
+export const LEISTUNG_STANDARD = "inkl. Ersatzteil, Einbau & Funktionstest";
+const LEISTUNGSARTEN = [
+  [/diagnose/i,    { keine: true }],
+  [/glastausch/i,  { leistung: "inkl. neuem Glas, Verklebung & Funktionstest", garantie: "12 Monate Garantie auf Glas und Verklebung (nicht auf das Original-OLED)" }],
+  [/controller.*reinigung/i, { leistung: "inkl. Reinigung & Funktionstest", garantie: "12 Monate Garantie auf die Arbeit" }],
+  [/reinigung/i,   { leistung: "inkl. Reinigung, Material & Funktionstest", garantie: "12 Monate Garantie auf die Arbeit" }],
+];
+export const leistungsArt = bez => (LEISTUNGSARTEN.find(([rx]) => rx.test(String(bez || ""))) || [])[1] || null;
+// eigen = Garantie-Text des Produkts ("keine" = ohne Zeile) · bez = Produktname · standard = Standard aus den Einstellungen
+export function positionsText(eigen, imei, bez, standard) {
+  const art = leistungsArt(bez), e = String(eigen || "").trim();
+  const zeile = /^keine$/i.test(e) || (art?.keine && !e) ? "" : `${art?.leistung || LEISTUNG_STANDARD} · ${e || art?.garantie || String(standard || GARANTIE_STANDARD).trim()}*`;
+  return [zeile, imei ? `Serien-/IMEI-Nr.: ${String(imei).trim()}` : ""].filter(Boolean).join("\n");
 }
 // Hinweis unter der Tabelle, sobald eine Position mit * auf die Garantie verweist
 export const garantieHinweis = (positionen = []) => positionen.some(p => /\*/.test(String(p.bez || "") + String(p.text || ""))) ? GARANTIE_HINWEIS : "";
