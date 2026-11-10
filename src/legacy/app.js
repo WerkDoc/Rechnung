@@ -257,7 +257,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"home", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {home:"Übersicht", auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="64";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="65";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["home","auftraege","kalender","rechnungen","kunden"];   // Einstellungen: Zahnrad oben rechts
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -815,6 +815,7 @@ export function startApp(){
     $("#sCancel").textContent = opts.cancelLabel || (onSave||opts.onRight ? "Abbrechen" : "Schließen");
     const f=$("#sFoot"); if(opts.foot){ f.innerHTML=opts.foot; f.hidden=false; } else { f.innerHTML=""; f.hidden=true; }
     if(!SHEET_INSTANT && $("#sheet").hidden) MORPH=null;
+    SHEET_SNAP=null; setTimeout(()=>{ if(!$("#sheet").hidden) SHEET_SNAP=sheetSnap(); }, 0);   // Ausgangszustand merken (nach dem Befüllen)
     $("#scrim").hidden=false; $("#sheet").hidden=false;
     if(SHEET_INSTANT){ SHEET_INSTANT=false; const sh=$("#sheet"), sc=$("#scrim");                 // Morph: sofort im Endzustand (Animation übernimmt View Transition / clip-path)
       sh.classList.add("notrans","on"); sc.classList.add("notrans","on"); void sh.offsetWidth;
@@ -836,6 +837,7 @@ export function startApp(){
     $("#scrim").animate([{opacity:0},{opacity:1}],{duration:380,easing:"ease-out"});
   }
   function closeSheet(){
+    SHEET_SNAP=null;
     const m=MORPH; MORPH=null; const sh=$("#sheet"), sc=$("#scrim");
     const card = m && !sh.hidden && !reducedMotion() && sh.animate ? $(`#main [data-job="${m.id}"]`) : null, cr=card?.getBoundingClientRect();
     if(card && cr.bottom>60 && cr.top<innerHeight-60){                                      // ruhig zurück in die Karte
@@ -853,14 +855,38 @@ export function startApp(){
     $("#scrim").classList.remove("on"); $("#sheet").classList.remove("on");
     setTimeout(()=>{ $("#scrim").hidden=true; $("#sheet").hidden=true; $("#sBody").innerHTML=""; $("#sFoot").innerHTML=""; }, 230);
   }
-  $("#sCancel").onclick=closeSheet; $("#scrim").onclick=closeSheet;
-  document.addEventListener("keydown", e=>{ if(e.key!=="Escape") return; if(!$("#viewer").hidden) return closeViewer(); if(!$("#picker").hidden) return closePicker(); if(!$("#sheet").hidden) closeSheet(); });
+  /* ---------- Schutz vor versehentlichem Schließen mit ungespeicherten Eingaben ---------- */
+  let SHEET_SNAP=null;
+  function sheetSnap(){
+    return $$("#sBody input, #sBody textarea, #sBody select, #sFoot input, #sFoot textarea, #sFoot select")
+      .filter(e=>e.type!=="file" && e.type!=="search" && !e.readOnly && !e.closest("[data-noguard]"))
+      .map(e=>e.type==="checkbox"||e.type==="radio" ? (e.checked?"1":"0") : e.value).join("\u0001");
+  }
+  const sheetDirty = () => SHEET_SNAP!==null && !$("#sheet").hidden && sheetSnap()!==SHEET_SNAP;
+  function sheetSaveAction(){
+    if($("#eDraft")) return {label:"Als Entwurf speichern", sub:"Später fertigstellen", run:()=>$("#eDraft").click()};
+    if(sheetSave && !sheetRight && !$("#sSave").hidden) return {label:"Speichern", sub:"Eingaben übernehmen", run:()=>$("#sSave").click()};
+    return null;
+  }
+  const sheetGuarded = () => !!sheetSaveAction() && sheetDirty();
+  function requestCloseSheet(){
+    if(!sheetGuarded()){ closeSheet(); return; }
+    const act=sheetSaveAction();
+    openPicker("Änderungen nicht gespeichert", [
+      {label:act.label, sub:act.sub, v:"save"},
+      {label:"Verwerfen", sub:"Eingaben gehen verloren", v:"drop", cls:"danger"}],
+      o => o.v==="save" ? act.run() : closeSheet());
+    const c=$("#pkClose"); if(c){ c.textContent="Weiter bearbeiten"; }
+    try{ navigator.vibrate?.(12); }catch(e){}
+  }
+  $("#sCancel").onclick=requestCloseSheet; $("#scrim").onclick=requestCloseSheet;
+  document.addEventListener("keydown", e=>{ if(e.key!=="Escape") return; if(!$("#viewer").hidden) return closeViewer(); if(!$("#picker").hidden) return closePicker(); if(!$("#sheet").hidden) requestCloseSheet(); });
   $("#sSave").onclick=()=>{ if(sheetRight) return sheetRight(); if(sheetSave && sheetSave()!==false) closeSheet(); };
   const val = id => ($("#"+id)?.value ?? "").trim();
 
   function openPicker(title, opts, onPick){
     const p=$("#picker");
-    p.innerHTML=`<h3>${esc(title)}</h3>${opts.map((o,i)=>`<button class="opt" data-i="${i}"><span>${esc(o.label)}${o.sub?`<small>${esc(o.sub)}</small>`:""}</span>${o.pill?`<span class="pill s-${o.pill}">${DST[o.pill]||""}</span>`:""}</button>`).join("")}<button class="btn ghost wide" id="pkClose">Abbrechen</button>`;
+    p.innerHTML=`<h3>${esc(title)}</h3>${opts.map((o,i)=>`<button class="opt${o.cls?" "+o.cls:""}" data-i="${i}"><span>${esc(o.label)}${o.sub?`<small>${esc(o.sub)}</small>`:""}</span>${o.pill?`<span class="pill s-${o.pill}">${DST[o.pill]||""}</span>`:""}</button>`).join("")}<button class="btn ghost wide" id="pkClose">Abbrechen</button>`;
     $("#pscrim").hidden=false; p.hidden=false; PK_OPEN=Date.now();
     p.onclick=e=>{ if(Date.now()-PK_OPEN<450) return; const b=e.target.closest("[data-i]"); if(b){ closePicker(); onPick(opts[+b.dataset.i]); } else if(e.target.closest("#pkClose")) closePicker(); };
   }
@@ -3756,7 +3782,7 @@ export function startApp(){
   }
 
   /* ===================== v49: Wischen nach unten schließt Fenster ===================== */
-  function swipeDismiss(panel, {scroller, handle, onClose, scrim}){
+  function swipeDismiss(panel, {scroller, handle, onClose, scrim, canClose, onBlocked}){
     let g=null;
     panel.addEventListener("touchstart", e => {
       g=null; if(e.touches.length!==1 || panel.hidden) return; const t=e.touches[0], el=e.target;
@@ -3776,7 +3802,8 @@ export function startApp(){
     const end = () => {
       if(!g) return; const s=g; g=null; if(s.lock!==1) return;
       const v=s.dy/Math.max(1,performance.now()-s.t);
-      if(s.dy>120 || (v>.55 && s.dy>40)){
+      const want = s.dy>120 || (v>.55 && s.dy>40), blocked = want && canClose && !canClose();
+      if(want && !blocked){
         panel.style.transition="transform .2s cubic-bezier(.4,0,1,1)"; panel.style.transform=`translateY(${panel.offsetHeight+40}px)`;
         if(scrim){ scrim.style.transition="opacity .2s"; scrim.style.opacity="0"; }
         setTimeout(()=>{ onClose(); setTimeout(()=>{ panel.style.transition=""; panel.style.transform=""; if(scrim){ scrim.style.transition=""; scrim.style.opacity=""; } }, 260); }, 190);
@@ -3784,11 +3811,12 @@ export function startApp(){
         panel.style.transition="transform .32s cubic-bezier(.2,.9,.3,1.08)"; panel.style.transform="";
         if(scrim){ scrim.style.transition="opacity .3s"; scrim.style.opacity=""; }
         setTimeout(()=>{ panel.style.transition=""; if(scrim) scrim.style.transition=""; }, 340);
+        if(blocked) onBlocked?.();
       }
     };
     panel.addEventListener("touchend", end, {passive:true}); panel.addEventListener("touchcancel", end, {passive:true});
   }
-  swipeDismiss($("#sheet"), {scroller:()=>$("#sBody"), handle:".sheet-h", scrim:$("#scrim"), onClose:()=>{ MORPH=null; closeSheet(); }});
+  swipeDismiss($("#sheet"), {scroller:()=>$("#sBody"), handle:".sheet-h", scrim:$("#scrim"), onClose:()=>{ MORPH=null; closeSheet(); }, canClose:()=>!sheetGuarded(), onBlocked:requestCloseSheet});
   swipeDismiss($("#picker"), {scroller:()=>$("#picker"), handle:"h3", scrim:$("#pscrim"), onClose:()=>closePicker()});
   swipeDismiss($("#viewer"), {scroller:()=>$("#vBody"), handle:".viewer-h", onClose:()=>closeViewer()});
 
