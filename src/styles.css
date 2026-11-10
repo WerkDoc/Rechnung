@@ -1289,6 +1289,44 @@ body:has(.selbar) .toast{bottom:calc(168px + env(safe-area-inset-bottom,0px))}
 .sw[aria-pressed="true"],.lay[aria-pressed="true"]{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue)}
 .toggle:checked{background:#34c759}
 .opt.danger > span{color:var(--red)}
+
+/* Kalendertag: beim Halten anheben (wie iOS-Kontextmenü) */
+.day.pressing{transform:scale(1.14) translateY(-2px);background:var(--surface);box-shadow:0 10px 26px rgba(16,24,40,.18),0 2px 6px rgba(16,24,40,.08);z-index:3;
+  transition:transform .5s cubic-bezier(.2,.8,.2,1),box-shadow .5s ease,background-color .3s ease}
+.day.lifted{transform:scale(1.14) translateY(-2px);background:var(--surface);box-shadow:0 14px 32px rgba(16,24,40,.22),0 3px 8px rgba(16,24,40,.1);z-index:3;transition:transform .3s ease,box-shadow .3s ease}
+.day.lp-done{animation:lpLift .42s cubic-bezier(.3,1.5,.5,1)}
+@keyframes lpLift{0%{transform:scale(1.14) translateY(-2px)}45%{transform:scale(1.22) translateY(-4px)}100%{transform:scale(1.14) translateY(-2px)}}
+.day:not(.pressing):not(.lifted){transition:transform .35s cubic-bezier(.2,.9,.3,1.2),box-shadow .3s ease,background-color .3s ease}
+:root[data-theme="dark"] :is(.day.pressing,.day.lifted){background:#2c2c2e;box-shadow:0 12px 30px rgba(0,0,0,.6)}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) :is(.day.pressing,.day.lifted){background:#2c2c2e;box-shadow:0 12px 30px rgba(0,0,0,.6)}}
+
+/* Auswahlfenster: gleitet weich herein, Kacheln heben sich leicht ab */
+.picker.in{animation:pkIn .42s cubic-bezier(.2,.9,.25,1.06) both}
+.picker.in > .opt,.picker.in > #pkClose{animation:pkOpt .38s cubic-bezier(.2,.9,.3,1.1) both;animation-delay:calc(70ms + var(--i,0) * 45ms)}
+.picker.out{animation:pkOut .23s cubic-bezier(.4,0,1,1) both}
+.pscrim:not([hidden]){animation:pkFade .25s ease both}
+.pscrim.out{animation:pkFadeOut .23s ease both}
+@keyframes pkIn{from{transform:translateY(105%)}to{transform:none}}
+@keyframes pkOut{to{transform:translateY(105%)}}
+@keyframes pkOpt{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes pkFade{from{opacity:0}to{opacity:1}}
+@keyframes pkFadeOut{to{opacity:0}}
+.picker .opt{box-shadow:0 1px 2px rgba(16,24,40,.05),0 4px 12px rgba(16,24,40,.06);transition:transform .16s ease,box-shadow .2s ease}
+.picker .opt:active{transform:scale(.98);box-shadow:0 1px 2px rgba(16,24,40,.05)}
+.pscrim{-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+
+/* Segment-Knöpfe: Schieber gleitet zum gewählten Eintrag */
+.seg{position:relative}
+.seg > button{position:relative;z-index:1}
+.seg.has-thumb > button[aria-pressed="true"]{background:none!important;box-shadow:none!important}
+.seg-thumb{position:absolute;top:2px;bottom:2px;left:0;width:0;border-radius:9px;background:var(--surface);
+  box-shadow:0 1px 3px rgba(0,0,0,.12),0 0 0 .5px rgba(0,0,0,.04);pointer-events:none;z-index:0;opacity:0;
+  transition:transform .42s cubic-bezier(.3,1.25,.45,1),width .36s cubic-bezier(.3,1.1,.45,1),opacity .2s ease}
+:root[data-theme="dark"] .seg-thumb{background:#636366}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .seg-thumb{background:#636366}}
+.seg > button{transition:color .25s ease,transform .16s ease}
+.seg > button:active{transform:scale(.96)}
+@media (prefers-reduced-motion: reduce){.picker.in,.picker.in > *,.picker.out,.pscrim{animation:none!important}.seg-thumb{transition:none}}
 /* Status-Knöpfe: Breite nach Text, damit „Angenommen“ mittig passt */
 .steps{display:flex;gap:6px}
 .step{flex:1 1 auto;padding:9px 5px;font-size:12.5px;letter-spacing:-.01em;white-space:nowrap}
