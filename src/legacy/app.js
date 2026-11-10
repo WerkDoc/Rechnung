@@ -257,7 +257,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"home", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {home:"Übersicht", auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="67";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="68";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["home","auftraege","kalender","rechnungen","kunden"];   // Einstellungen: Zahnrad oben rechts
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -718,6 +718,24 @@ export function startApp(){
   }
 
   /* ---------- view bindings ---------- */
+  /* Aufklapp-Bereiche: Höhe weich animieren (auf und zu) */
+  function accToggle(box, on){
+    const body=box.querySelector(".accbody"), btn=box.querySelector("[data-acc]"); if(!body) return;
+    btn?.setAttribute("aria-expanded", String(on));
+    body.getAnimations().forEach(a=>a.cancel()); box.classList.remove("closing");
+    if(reducedMotion() || !body.animate){ box.classList.toggle("open", on); return; }
+    const ease="cubic-bezier(.3,.9,.3,1)";
+    if(on){
+      box.classList.add("open"); const h=body.scrollHeight;
+      body.style.overflow="hidden";
+      body.animate([{height:"0px",opacity:0,paddingTop:"0px",paddingBottom:"0px"},{height:h+"px",opacity:1}],{duration:380,easing:ease})
+        .onfinish=()=>{ body.style.overflow=""; };
+    } else {
+      const h=body.offsetHeight; box.classList.add("closing"); box.classList.remove("open"); body.style.overflow="hidden";
+      const an=body.animate([{height:h+"px",opacity:1},{height:"0px",opacity:0,paddingTop:"0px",paddingBottom:"0px"}],{duration:300,easing:"cubic-bezier(.4,0,.2,1)"});
+      an.onfinish=()=>{ box.classList.remove("closing"); body.style.overflow=""; };
+    }
+  }
   let LIFT_DAY=null;
   function bindView(){
     const m=$("#main");
@@ -740,8 +758,8 @@ export function startApp(){
       if(t.dataset.hint){ hidden[t.dataset.hint]=1; try{localStorage.setItem("rm-hints",JSON.stringify(hidden));}catch(e){} render(); return; }
       if(t.dataset.go){ const [v,f]=t.dataset.go.split(":"); if(v==="rechnungen"){ UI.docSeg="rechnungen"; UI.docFilter=f||"alle"; } else UI.filter=f||"offen"; switchView(v); return; }
       if(t.dataset.acc){ const id=t.dataset.acc, box=t.closest(".acc"), on=!box.classList.contains("open"); UI.mopen=on?id:null;
-        $$("#main .acc.open").forEach(b=>{ if(b!==box){ b.classList.remove("open"); b.querySelector("[data-acc]").setAttribute("aria-expanded","false"); } });
-        box.classList.toggle("open", on); t.setAttribute("aria-expanded", String(on)); if(on) $$(".seg",box).forEach(sg=>segSync(sg,false)); if(on) setTimeout(()=>box.scrollIntoView({block:"nearest", behavior:reducedMotion()?"auto":"smooth"}), 60); return; }
+        $$("#main .acc.open").forEach(b=>{ if(b!==box) accToggle(b,false); });
+        accToggle(box,on); if(on){ $$(".seg",box).forEach(sg=>segSync(sg,false)); setTimeout(()=>box.scrollIntoView({block:"nearest", behavior:reducedMotion()?"auto":"smooth"}), 380); } return; }
       if(t.dataset.f){ UI.filter=t.dataset.f; render(); return; }
       if(t.dataset.df){ UI.docFilter=t.dataset.df; render(); return; }
       if(t.dataset.seg){ UI.docSeg=t.dataset.seg; UI.docFilter="alle"; if(UI.sel?.kind==="rechnungen") UI.sel=null; render(); return; }
