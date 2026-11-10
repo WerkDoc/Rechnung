@@ -257,7 +257,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"home", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {home:"Übersicht", auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="66";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="67";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["home","auftraege","kalender","rechnungen","kunden"];   // Einstellungen: Zahnrad oben rechts
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -718,14 +718,16 @@ export function startApp(){
   }
 
   /* ---------- view bindings ---------- */
+  let LIFT_DAY=null;
   function bindView(){
     const m=$("#main");
+    if(LIFT_DAY && !$("#picker").hidden) $(`#main .day[data-day="${LIFT_DAY}"]`)?.classList.add("lifted");   // nach Neuzeichnen angehoben lassen
     // Langes Drücken auf einen Kalendertag → Aktionen für diesen Tag
     m.onpointerdown = e => {
       if(LP?.fired) LP=null;   // neuer Tipp: vorheriges Long-Press ist erledigt
       const d=e.target.closest(".day"); if(!d || (e.pointerType==="mouse" && e.button!==0)) return;
       clearTimeout(LP?.t); d.classList.add("pressing");
-      LP={ d, x:e.clientX, y:e.clientY, fired:false, t:setTimeout(()=>{ LP.fired=true; d.classList.remove("pressing"); d.classList.add("lp-done"); setTimeout(()=>d.classList.remove("lp-done"),340);
+      LP={ d, x:e.clientX, y:e.clientY, fired:false, t:setTimeout(()=>{ LP.fired=true; LIFT_DAY=d.dataset.day; d.classList.remove("pressing"); d.classList.add("lp-done","lifted"); setTimeout(()=>d.classList.remove("lp-done"),420);
         try{ navigator.vibrate?.(40); }catch(_){} dayMenu(d.dataset.day); setTimeout(()=>{ if(LP?.fired) LP=null; }, 900); }, 500) };
     };
     const lpCancel=()=>{ if(LP && !LP.fired){ clearTimeout(LP.t); LP.d.classList.remove("pressing"); LP=null; } };
@@ -739,7 +741,7 @@ export function startApp(){
       if(t.dataset.go){ const [v,f]=t.dataset.go.split(":"); if(v==="rechnungen"){ UI.docSeg="rechnungen"; UI.docFilter=f||"alle"; } else UI.filter=f||"offen"; switchView(v); return; }
       if(t.dataset.acc){ const id=t.dataset.acc, box=t.closest(".acc"), on=!box.classList.contains("open"); UI.mopen=on?id:null;
         $$("#main .acc.open").forEach(b=>{ if(b!==box){ b.classList.remove("open"); b.querySelector("[data-acc]").setAttribute("aria-expanded","false"); } });
-        box.classList.toggle("open", on); t.setAttribute("aria-expanded", String(on)); if(on) setTimeout(()=>box.scrollIntoView({block:"nearest", behavior:reducedMotion()?"auto":"smooth"}), 60); return; }
+        box.classList.toggle("open", on); t.setAttribute("aria-expanded", String(on)); if(on) $$(".seg",box).forEach(sg=>segSync(sg,false)); if(on) setTimeout(()=>box.scrollIntoView({block:"nearest", behavior:reducedMotion()?"auto":"smooth"}), 60); return; }
       if(t.dataset.f){ UI.filter=t.dataset.f; render(); return; }
       if(t.dataset.df){ UI.docFilter=t.dataset.df; render(); return; }
       if(t.dataset.seg){ UI.docSeg=t.dataset.seg; UI.docFilter="alle"; if(UI.sel?.kind==="rechnungen") UI.sel=null; render(); return; }
@@ -855,6 +857,29 @@ export function startApp(){
     $("#scrim").classList.remove("on"); $("#sheet").classList.remove("on");
     setTimeout(()=>{ $("#scrim").hidden=true; $("#sheet").hidden=true; $("#sBody").innerHTML=""; $("#sFoot").innerHTML=""; }, 230);
   }
+  /* ---------- Segment-Knöpfe: gleitender Schieber wie bei iOS ---------- */
+  const SEG_POS=new Map();
+  const segKey = seg => { const b=seg.querySelector("button"); return b ? ([...b.attributes].map(a=>a.name).filter(n=>n.startsWith("data-")).join(",") || seg.className) : ""; };
+  function segSync(seg, animate=true){
+    const on=seg.querySelector(':scope > button[aria-pressed="true"]'); let th=seg.querySelector(":scope > .seg-thumb");
+    if(!on){ if(th) th.style.opacity="0"; return; }
+    if(!seg.offsetWidth || !on.offsetWidth) return;      // Layout-Maße: unabhängig von laufenden Zoom-/Blatt-Animationen
+    if(!th){ th=document.createElement("i"); th.className="seg-thumb"; th.setAttribute("aria-hidden","true"); seg.prepend(th); seg.classList.add("has-thumb"); }
+    const x=on.offsetLeft, w=on.offsetWidth, k=segKey(seg), prev=SEG_POS.get(k);
+    const put=(x,w)=>{ th.style.transform=`translateX(${x}px)`; th.style.width=w+"px"; };
+    if(!animate || reducedMotion() || (!th.dataset.ready && !prev)){ th.style.transition="none"; put(x,w); void th.offsetWidth; th.style.transition=""; }
+    else if(!th.dataset.ready){ th.style.transition="none"; put(prev.x,prev.w); void th.offsetWidth; th.style.transition=""; put(x,w); }
+    else put(x,w);
+    th.style.opacity="1"; th.dataset.ready="1"; SEG_POS.set(k,{x,w});
+  }
+  let SEG_RAF=0;
+  const segAll = (animate=true) => { cancelAnimationFrame(SEG_RAF); SEG_RAF=requestAnimationFrame(()=>$$(".seg").forEach(s=>segSync(s,animate))); };
+  new MutationObserver(muts=>{
+    for(const m of muts){ if(m.type==="childList" ? [...m.addedNodes].some(n=>n.nodeType===1 && !n.classList?.contains("seg-thumb")) : m.target.closest?.(".seg")) return segAll(); }
+  }).observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:["aria-pressed"]});
+  addEventListener("resize", ()=>segAll(false));
+  segAll(false);
+
   /* ---------- Schutz vor versehentlichem Schließen mit ungespeicherten Eingaben ---------- */
   let SHEET_SNAP=null;
   function sheetSnap(){
@@ -885,12 +910,20 @@ export function startApp(){
   const val = id => ($("#"+id)?.value ?? "").trim();
 
   function openPicker(title, opts, onPick){
-    const p=$("#picker");
-    p.innerHTML=`<h3>${esc(title)}</h3>${opts.map((o,i)=>`<button class="opt${o.cls?" "+o.cls:""}" data-i="${i}"><span>${esc(o.label)}${o.sub?`<small>${esc(o.sub)}</small>`:""}</span>${o.pill?`<span class="pill s-${o.pill}">${DST[o.pill]||""}</span>`:""}</button>`).join("")}<button class="btn ghost wide" id="pkClose">Abbrechen</button>`;
-    $("#pscrim").hidden=false; p.hidden=false; PK_OPEN=Date.now();
-    p.onclick=e=>{ if(Date.now()-PK_OPEN<450) return; const b=e.target.closest("[data-i]"); if(b){ closePicker(); onPick(opts[+b.dataset.i]); } else if(e.target.closest("#pkClose")) closePicker(); };
+    const p=$("#picker"), sc=$("#pscrim"); clearTimeout(PK_T); p.classList.remove("out"); sc.classList.remove("out");
+    p.innerHTML=`<h3>${esc(title)}</h3>${opts.map((o,i)=>`<button class="opt${o.cls?" "+o.cls:""}" data-i="${i}" style="--i:${i}"><span>${esc(o.label)}${o.sub?`<small>${esc(o.sub)}</small>`:""}</span>${o.pill?`<span class="pill s-${o.pill}">${DST[o.pill]||""}</span>`:""}</button>`).join("")}<button class="btn ghost wide" id="pkClose" style="--i:${opts.length}">Abbrechen</button>`;
+    const fresh = p.hidden; sc.hidden=false; p.hidden=false; PK_OPEN=Date.now();
+    if(fresh){ p.classList.remove("in"); void p.offsetWidth; p.classList.add("in"); }
+    p.onclick=e=>{ if(Date.now()-PK_OPEN<450) return; const b=e.target.closest("[data-i]"); if(b){ closePicker(true); onPick(opts[+b.dataset.i]); } else if(e.target.closest("#pkClose")) closePicker(); };
   }
-  function closePicker(){ $("#picker").hidden=true; $("#pscrim").hidden=true; }
+  let PK_T=0;
+  function closePicker(instant){
+    const p=$("#picker"), sc=$("#pscrim"); LIFT_DAY=null; $$(".day.lifted").forEach(d=>d.classList.remove("lifted"));
+    if(p.hidden) return;
+    if(instant || reducedMotion()){ p.hidden=true; sc.hidden=true; p.classList.remove("in","out"); sc.classList.remove("out"); return; }
+    p.classList.add("out"); sc.classList.add("out");
+    PK_T=setTimeout(()=>{ p.hidden=true; sc.hidden=true; p.classList.remove("in","out"); sc.classList.remove("out"); }, 230);
+  }
   let PK_OPEN=0;
   $("#pscrim").onclick=()=>{ if(Date.now()-PK_OPEN<450) return; closePicker(); };
 
@@ -3817,7 +3850,7 @@ export function startApp(){
     panel.addEventListener("touchend", end, {passive:true}); panel.addEventListener("touchcancel", end, {passive:true});
   }
   swipeDismiss($("#sheet"), {scroller:()=>$("#sBody"), handle:".sheet-h", scrim:$("#scrim"), onClose:()=>{ MORPH=null; closeSheet(); }, canClose:()=>!sheetGuarded(), onBlocked:requestCloseSheet});
-  swipeDismiss($("#picker"), {scroller:()=>$("#picker"), handle:"h3", scrim:$("#pscrim"), onClose:()=>closePicker()});
+  swipeDismiss($("#picker"), {scroller:()=>$("#picker"), handle:"h3", scrim:$("#pscrim"), onClose:()=>closePicker(true)});
   swipeDismiss($("#viewer"), {scroller:()=>$("#vBody"), handle:".viewer-h", onClose:()=>closeViewer()});
 
   /* ===================== v49: Rückgängig + Schütteln ===================== */
