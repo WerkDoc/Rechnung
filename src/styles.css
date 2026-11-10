@@ -1289,6 +1289,10 @@ body:has(.selbar) .toast{bottom:calc(168px + env(safe-area-inset-bottom,0px))}
 .sw[aria-pressed="true"],.lay[aria-pressed="true"]{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue)}
 .toggle:checked{background:#34c759}
 .opt.danger > span{color:var(--red)}
+/* Status-Knöpfe: Breite nach Text, damit „Angenommen“ mittig passt */
+.steps{display:flex;gap:6px}
+.step{flex:1 1 auto;padding:9px 5px;font-size:12.5px;letter-spacing:-.01em;white-space:nowrap}
+@media (max-width:419px){.steps{display:grid;grid-template-columns:1fr 1fr}.step{font-size:14px;padding:10px 6px}}
 .iobar{gap:6px}
 .iobar .cnt{font-size:13px}
 .iobar .btn.sm{padding:6px 11px;font-size:13px;gap:5px;font-weight:600}
