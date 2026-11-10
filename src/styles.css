@@ -1260,10 +1260,11 @@ body:has(.selbar) .toast{bottom:calc(168px + env(safe-area-inset-bottom,0px))}
 /* ---------- Einstellungen ---------- */
 .sgroup{display:flex;flex-direction:column;gap:6px}
 .acc .accbody{display:none;padding:2px 12px 14px;flex-direction:column;gap:10px}
-.acc.open .accbody{display:flex;animation:accIn .22s ease}
+.acc.open .accbody,.acc.closing .accbody{display:flex}
 @keyframes accIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
 .acc .chev{transition:transform .25s ease}
 .acc.open > .lrow .chev{transform:rotate(90deg)}
+.acc .chev{transition:transform .35s cubic-bezier(.3,.9,.3,1)}
 .accbody .card,.accbody .box{box-shadow:none;background:var(--surface-2);border-color:transparent}
 .accpad{display:flex;flex-direction:column;gap:10px}
 .profile{gap:12px}
