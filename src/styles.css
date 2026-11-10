@@ -1288,6 +1288,7 @@ body:has(.selbar) .toast{bottom:calc(168px + env(safe-area-inset-bottom,0px))}
 .search{background:var(--fill);border:0;box-shadow:none;border-radius:12px}
 .sw[aria-pressed="true"],.lay[aria-pressed="true"]{border-color:var(--blue);box-shadow:0 0 0 2px var(--blue)}
 .toggle:checked{background:#34c759}
+.opt.danger > span{color:var(--red)}
 .iobar{gap:6px}
 .iobar .cnt{font-size:13px}
 .iobar .btn.sm{padding:6px 11px;font-size:13px;gap:5px;font-weight:600}
