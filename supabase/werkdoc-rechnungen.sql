@@ -54,7 +54,8 @@ create or replace function public.wb_rechnung_schutz() returns trigger
 language plpgsql set search_path = public as $$
 declare
   geschuetzt text[] := array['typ','nr','kundeId','auftragId','geraet','imei','datum','leistung','faellig',
-                             'positionen','ku','mwst','brutto','rabatt','notiz','websiteAuftrag','quelle','created'];
+                             'positionen','ku','mwst','brutto','rabatt','notiz','websiteAuftrag','quelle','created',
+                             'empfaenger','kundenNr'];
   alt jsonb;
 begin
   if old.coll = 'rechnungen' and not coalesce(old.deleted, false) and old.data is not null
@@ -97,17 +98,18 @@ begin
 end $$;
 revoke all on function public.wb_website_zugang_erzeugen(text) from public, anon, authenticated;
 
--- Legt Kunde (falls neu) und Rechnung an und gibt Nummer + Firmendaten fürs PDF zurück.
--- p_kunde:    { name, strasse, plz, ort, land, mail, tel }
--- p_rechnung: { websiteAuftrag, geraet, datum, leistung, faellig, positionen:[{bez,text,menge,einheit,preis}], notiz }
+-- Legt Rechnung an (Kunde neu oder Anschrift im Kundenstamm aktualisiert) und gibt Nummer, Firmendaten und den
+-- GESPEICHERTEN Beleg zurück – die Website zeichnet ihr PDF genau aus diesem Datensatz (wie WerkDoc).
+-- p_kunde:    { name, strasse, plz, ort, land, mail, tel }   – Name/Anschrift aus dem Website-Auftrag
+-- p_rechnung: { websiteAuftrag, geraet, datum, leistung, faellig, positionen:[{bez,text,menge,einheit,preis}], empfaenger:[…], notiz }
 create or replace function public.wb_website_rechnung(p_key text, p_kunde jsonb, p_rechnung jsonb) returns jsonb
 language plpgsql security definer set search_path = public, extensions as $$
 declare
   u uuid; firma jsonb; ref text := p_rechnung->>'websiteAuftrag';
   jahr int := extract(year from (now() at time zone 'Europe/Berlin'))::int;
   pre text; mit_jahr boolean; start int := 1; hoechste int; n int; nr text;
-  k_id text; k_nr text; r_id text; jetzt bigint := (extract(epoch from clock_timestamp()) * 1000)::bigint;
-  vorhanden text; daten jsonb;
+  k_id text; k_nr text; k_created text; r_id text; jetzt bigint := (extract(epoch from clock_timestamp()) * 1000)::bigint;
+  vorhanden text; daten jsonb; anschrift jsonb; empf jsonb;
 begin
   select z.user_id into u from public.wb_website_zugang z
    where z.schluessel_hash = encode(extensions.digest(coalesce(p_key, ''), 'sha256'), 'hex');
@@ -141,10 +143,23 @@ begin
   nr := pre || lpad(n::text, 3, '0') || case when jahr > 0 then '/' || jahr else '' end;
 
   -- Kunde über die E-Mail wiederfinden oder neu anlegen
-  select r.id, r.data->>'nr' into k_id, k_nr from public.wb_records r
+  select r.id, r.data->>'nr', r.data->>'created' into k_id, k_nr, k_created from public.wb_records r
    where r.user_id = u and r.coll = 'kunden' and not coalesce(r.deleted, false)
      and lower(r.data->>'mail') = lower(p_kunde->>'mail') and coalesce(p_kunde->>'mail', '') <> '' limit 1;
-  if k_id is null then
+  if k_id is not null then
+    -- Website hat Vorrang: Name + Anschrift aus dem Auftrag in den Kundenstamm übernehmen (Telefon nur, wenn angegeben)
+    if coalesce(k_nr, '') !~ '^\d+$' then
+      -- noch keine feste Kundennummer: dieselbe Zahl, die WerkDoc gerade anzeigt (1001 + Position nach Anlagedatum), jetzt festschreiben
+      select (1001 + count(*))::text into k_nr from public.wb_records r
+       where r.user_id = u and r.coll = 'kunden' and not coalesce(r.deleted, false)
+         and (coalesce(r.data->>'created', ''), r.id) < (coalesce(k_created, ''), k_id);
+    end if;
+    anschrift := jsonb_build_object('name', trim(p_kunde->>'name'), 'strasse', coalesce(p_kunde->>'strasse', ''),
+      'plz', coalesce(p_kunde->>'plz', ''), 'ort', coalesce(p_kunde->>'ort', ''), 'land', coalesce(nullif(p_kunde->>'land', ''), 'Deutschland'), 'nr', k_nr)
+      || case when coalesce(trim(p_kunde->>'tel'), '') <> '' then jsonb_build_object('tel', trim(p_kunde->>'tel')) else '{}'::jsonb end;
+    update public.wb_records r set data = r.data || anschrift, upd = jetzt, updated_at = now()
+     where r.user_id = u and r.coll = 'kunden' and r.id = k_id;
+  else
     k_id := 'web' || substr(md5(random()::text || clock_timestamp()::text), 1, 12);
     select (greatest(1000, coalesce(max((r.data->>'nr')::int), 0)) + 1)::text into k_nr from public.wb_records r
      where r.user_id = u and r.coll = 'kunden' and (r.data->>'nr') ~ '^\d{1,9}$';
@@ -152,12 +167,22 @@ begin
     values (u, 'kunden', k_id, jsonb_strip_nulls(jsonb_build_object(
       'name', trim(p_kunde->>'name'), 'strasse', p_kunde->>'strasse', 'plz', p_kunde->>'plz', 'ort', p_kunde->>'ort',
       'land', p_kunde->>'land', 'mail', p_kunde->>'mail', 'tel', p_kunde->>'tel', 'nr', k_nr,
+      'created', to_char(now() at time zone 'Europe/Berlin', 'YYYY-MM-DD'),
       'notiz', 'Angelegt über die Website (Auftrag ' || ref || ')')), false, jetzt, now());
   end if;
 
   r_id := 'web' || substr(md5(random()::text || clock_timestamp()::text || ref), 1, 12);
+  -- Anschrift fest in die Rechnung (ändert sich nie mehr, auch wenn der Kunde später umzieht)
+  empf := case when jsonb_typeof(p_rechnung->'empfaenger') = 'array' and jsonb_array_length(p_rechnung->'empfaenger') > 0
+    then p_rechnung->'empfaenger'
+    else (select coalesce(jsonb_agg(t.z order by t.i), '[]'::jsonb)
+            from unnest(array[trim(p_kunde->>'name'), nullif(trim(coalesce(p_kunde->>'strasse', '')), ''),
+                              nullif(trim(concat_ws(' ', nullif(p_kunde->>'plz', ''), nullif(p_kunde->>'ort', ''))), ''),
+                              coalesce(nullif(p_kunde->>'land', ''), 'Deutschland')]) with ordinality as t(z, i)
+           where t.z is not null) end;
   daten := jsonb_build_object(
     'typ', 'rechnung', 'nr', nr, 'status', 'offen', 'kundeId', k_id, 'auftragId', '',
+    'empfaenger', empf, 'kundenNr', coalesce(k_nr, ''),
     'websiteAuftrag', ref, 'quelle', 'website',
     'geraet', coalesce(p_rechnung->>'geraet', ''), 'imei', '',
     'datum', coalesce(p_rechnung->>'datum', to_char(now() at time zone 'Europe/Berlin', 'YYYY-MM-DD')),
@@ -169,7 +194,7 @@ begin
     'created', to_char(now() at time zone 'Europe/Berlin', 'YYYY-MM-DD"T"HH24:MI'));
   insert into public.wb_records (user_id, coll, id, data, deleted, upd, updated_at) values (u, 'rechnungen', r_id, daten, false, jetzt, now());
 
-  return jsonb_build_object('id', r_id, 'nr', nr, 'kunde_nr', k_nr,
+  return jsonb_build_object('id', r_id, 'nr', nr, 'kunde_nr', k_nr, 'rechnung', daten,
     'firma', jsonb_strip_nulls(jsonb_build_object(
       'name', firma->>'name', 'strasse', firma->>'strasse', 'plz', firma->>'plz', 'ort', firma->>'ort',
       'tel', firma->>'tel', 'mail', firma->>'mail', 'ansprechpartner', firma->>'ansprechpartner',

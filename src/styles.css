@@ -632,6 +632,11 @@ html.auth-open, html.auth-open body{overflow:hidden}
 /* A4 sheet (paper is always white, in both themes) */
 .pscale{position:relative;overflow:hidden;width:100%;border-radius:4px;box-shadow:0 2px 14px rgba(0,0,0,.18);background:var(--paper);cursor:zoom-in}
 .pscale .pinner{position:absolute;top:0;left:0;transform-origin:0 0;width:794px}
+/* Layout „Neutral“: Vorschau = echtes PDF (pdf.js-Canvas), Blattbreite 794 px wie .paper */
+.pdfprev{background:#fff}
+.pdfprev canvas,.pdfprev .pdfseite{display:block;width:794px;height:1123px;background:#fff}
+.pdfprev canvas+canvas{border-top:14px solid var(--bg,#e9edf2)}
+.pdfprev .pdffehler{display:grid;place-items:center;color:#666;font:16px/1.4 Helvetica,Arial,sans-serif;padding:40px;text-align:center}
 .paper{position:relative;background:var(--paper);color:var(--ink);width:794px;min-height:1123px;padding:56px 72px 40px;font-family:Helvetica,Arial,sans-serif;font-size:12.5px;line-height:1.45;display:flex;flex-direction:column}
 .paper .ph1{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;min-height:70px}
 .paper .logo{max-height:84px;max-width:280px;width:auto;height:auto;object-fit:contain;display:block}

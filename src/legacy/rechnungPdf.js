@@ -1,25 +1,29 @@
 /*
  * RepairMobile – Rechnungslayout „Neutral“ (nach rechnung-vorlage.pdf)
- * Zeichnet einen Beleg mit jsPDF. Wird von WerkDoc UND von der Website (Supabase Edge Function
- * rechnung-senden) benutzt – damit Rechnungen aus dem Laden und von der Website gleich aussehen.
+ * EIN Modul für WerkDoc UND die Website – es gibt keine zweite Version.
+ *   WerkDoc:  import … from "./rechnungPdf.js"
+ *   Website:  Edge Function rechnung-senden importiert GENAU DIESE Datei von GitHub, festgenagelt auf einen Commit:
+ *             https://raw.githubusercontent.com/WerkDoc/Rechnung/<commit>/src/legacy/rechnungPdf.js
+ *             → Nach jeder Änderung hier: WerkDoc pushen, Commit-Hash in index.ts eintragen, Function neu deployen.
  *
- * !!! Diese Datei gibt es zweimal: Rechnung/src/legacy/rechnungPdf.js und
- *     RepairMobile-Website/supabase/functions/rechnung-senden/rechnungPdf.js
- *     Bei Änderungen beide Dateien gleich halten (einfach kopieren). !!!
+ * Ablauf (beide Seiten gleich):
+ *   r = gespeicherter Beleg-Datensatz, wie er in WerkDoc (wb_records, coll "rechnungen") liegt
+ *   zeichneRechnung(doc, belegDaten(r, { firma, logo, schrift, qr }))
+ * Empfänger und Kundennummer stehen fest im Beleg (r.empfaenger, r.kundenNr) – nie neu aus dem Kundenstamm lesen.
  *
- * Keine Abhängigkeiten – bekommt nur ein fertiges Datenobjekt B:
+ * zeichneRechnung hat keine Abhängigkeiten – bekommt nur ein fertiges Datenobjekt B:
  * {
  *   logo:        "data:image/png;base64,…" (optional)
  *   firma:       { name, strasse, plz, ort, land, tel, mail, stnr, ustid, inhaber, bank, iban, bic }
  *   empfaenger:  ["Herrn Max Muster", "Straße 1", "12345 Ort", "Deutschland"]
  *   titel:       "Rechnung"           nrLabel: "Rechnungs-Nr."        nr: "RE-030/2026"
  *   meta1:       [["Rechnungsdatum","03.11.2026"], ["Lieferdatum","03.11.2026"]]
- *   meta2:       [["Auftrag","RM-00005"], ["Ihre Kundennummer","1034"], ["Ihr Ansprechpartner","Oleg Schäfer"]]
+ *   meta2:       [["Auftrag","RM-00005"], ["Deine Kundennummer","1034"], ["Dein Ansprechpartner","Oleg Schäfer"]]
  *   unterzeile:  ["Rechnungsdatum entspricht Leistungsdatum", "Gerät: iPhone 11"]
  *   positionen:  [{ bez, text, menge, einheit, preis }]   (text = Zeile(n) unter dem fetten Titel, mehrere mit \n)
  *                Enthält eine Position ein *, steht unter der Tabelle automatisch GARANTIE_HINWEIS.
  *   summen:      { netto, brutto, mwst, mwstSatz, rabatt, rabattSatz, summe, ku }   (ku = Kleinunternehmer)
- *   texte:       ["Bitte überweise …", "Wir bedanken uns …"]
+ *   texte:       ["Bitte bezahle …", "Danke für deinen Auftrag …"]
  *   gruss:       "RepairMobile"
  *   schrift:     { name:"OpenSans", normal:"<base64 TTF>", bold:"<base64 TTF>" }   (optional, sonst Helvetica)
  *   girocode:    { name, iban, bic, betrag, zweck }   (optional: QR-Code zum Überweisen + Bankdaten als Text)
@@ -32,7 +36,7 @@
 //   Zeile 2:   inkl. Ersatzteil, Einbau & Funktionstest · [Garantie]*
 //   Zeile 3:   Serien-/IMEI-Nr.: …                                    nur, wenn vorhanden
 export const GARANTIE_STANDARD = "12 Monate Garantie auf das Ersatzteil";
-export const GARANTIE_HINWEIS = "* Es gelten unsere Garantiebedingungen: repair-mobile.de/garantie. Ihre gesetzlichen Gewährleistungsrechte bleiben unberührt.";
+export const GARANTIE_HINWEIS = "* Es gelten unsere Garantiebedingungen: repair-mobile.de/garantie. Deine gesetzlichen Gewährleistungsrechte bleiben unberührt.";
 export function positionsTitel(reparatur, geraet, ausfuehrung) {
   return [reparatur, geraet].map(s => String(s || "").trim()).filter(Boolean).join(" ") + (ausfuehrung ? " – " + String(ausfuehrung).trim() : "") + " (Festpreis)";
 }
@@ -73,6 +77,66 @@ export function fussSpalten(f = {}) {
     [f.stnr && "Steuer-Nr. " + f.stnr, f.ustid && "USt-IdNr. " + f.ustid, inh && "Inhaber/-in " + inh],
     [f.bank && "Bank " + f.bank, konto && "Konto " + konto, blz && "BLZ " + blz, iban && "IBAN " + iban, f.bic && "BIC " + f.bic],
   ].map(c => c.filter(Boolean));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Belegaufbau aus dem gespeicherten Datensatz – Texte, Summen, Zahlungshinweis, GiroCode
+// ---------------------------------------------------------------------------------------------
+const TITEL = { rechnung: "Rechnung", angebot: "Angebot", kva: "Kostenvoranschlag" };
+const r2 = n => Math.round((+n || 0) * 100) / 100;
+export const deDatum = iso => { const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}.${m[2]}.${m[1]}` : ""; };
+
+// Anschriftzeilen für das Adressfeld – wird beim Erstellen EINMAL gebildet und im Beleg gespeichert (r.empfaenger)
+export function empfaengerZeilen(k = {}) {
+  const s = v => String(v || "").trim();
+  return [s(k.firma) && s(k.firma) !== s(k.name) ? s(k.firma) : "", s(k.name), s(k.strasse), [s(k.plz), s(k.ort)].filter(Boolean).join(" "), s(k.land) || "Deutschland"].filter(Boolean);
+}
+
+// Summen: r.mwst = Satz in % (0 = keine USt), r.brutto = Preise sind Bruttopreise, r.rabatt = Rabatt in %
+export function belegSummen(r = {}) {
+  const sum = r2((r.positionen || []).reduce((a, x) => a + (+x.menge || 0) * (+x.preis || 0), 0));
+  const rab = r2(sum * (+r.rabatt || 0) / 100), base = r2(sum - rab), p = r.ku ? 0 : (+r.mwst || 0);
+  if (!p) return { sum, rab, netto: base, mwst: 0, brutto: base, p };
+  if (r.brutto !== false) { const netto = r2(base / (1 + p / 100)); return { sum, rab, netto, mwst: r2(base - netto), brutto: base, p }; }
+  const m = r2(base * p / 100); return { sum, rab, netto: base, mwst: m, brutto: r2(base + m), p };
+}
+
+// Zahlungshinweis: bezahlt → „Betrag dankend erhalten am …“, offen → „Bitte bezahle bis …“ (+ GiroCode). Nie beides.
+export function zahlungsText(r = {}) {
+  const t = r.typ || "rechnung", st = r.status || "offen", bis = deDatum(r.faellig);
+  if (t === "kva") return `Dieser Kostenvoranschlag ist unverbindlich und gilt bis zum ${bis}. Sollten sich die Kosten wesentlich erhöhen, informieren wir dich vorher.`;
+  if (t !== "rechnung") return `Dieses Angebot gilt bis zum ${bis}. Wir freuen uns auf deinen Auftrag.`;
+  if (st === "storniert") return "Diese Rechnung wurde storniert.";
+  if (st === "bezahlt") return `Betrag dankend erhalten${r.bezahltAm ? " am " + deDatum(r.bezahltAm) : ""}.`;
+  return `Bitte bezahle den Betrag${bis ? " bis zum " + bis : ""} per Überweisung${r.websiteAuftrag ? " oder bequem per PayPal über den Button in der Rechnungs-E-Mail bzw. in deinem Kundenkonto" : ""}.`;
+}
+
+/*
+ * r:  { typ, nr, status, bezahltAm, datum, leistung, faellig, empfaenger:[…], kundenNr, websiteAuftrag,
+ *       geraet, imei, positionen:[{bez,text,menge,einheit,preis}], ku, mwst, brutto, rabatt, notiz }
+ * o:  { firma, logo (sonst firma.logo), schrift, qr, nrAnzeige (z. B. „RE-···/2026“ im Entwurf) }
+ */
+export function belegDaten(r = {}, o = {}) {
+  const f = o.firma || {}, t = r.typ || "rechnung", titel = TITEL[t] || "Rechnung", istRe = t === "rechnung";
+  const st = r.status || "offen", s = belegSummen(r), nr = o.nrAnzeige || r.nr || "";
+  const datumL = istRe ? "Rechnungsdatum" : "Datum";
+  const offen = istRe && !!r.nr && !["bezahlt", "storniert", "entwurf"].includes(st);
+  // Alte Website-Notiz „Bitte bezahle …“ nicht doppelt – der Zahlungshinweis kommt aus zahlungsText()
+  const notiz = /^Bitte bezahle /.test(String(r.notiz || "")) ? "" : String(r.notiz || "").trim();
+  return {
+    logo: o.logo !== undefined ? o.logo : (f.logo || ""), firma: { ...f, land: f.land || "Deutschland" },
+    empfaenger: (r.empfaenger || []).filter(Boolean),
+    titel, nrLabel: `${titel}s-Nr.`, nr,
+    meta1: [[datumL, deDatum(r.datum)], ["Lieferdatum", deDatum(r.leistung || r.datum)], istRe ? null : ["Gültig bis", deDatum(r.faellig)]],
+    meta2: [r.websiteAuftrag ? ["Auftrag", r.websiteAuftrag] : null, ["Deine Kundennummer", r.kundenNr || ""], ["Dein Ansprechpartner", f.ansprechpartner || ""]],
+    unterzeile: [(!r.leistung || r.leistung === r.datum) ? `${datumL} entspricht Leistungsdatum` : `Leistungsdatum: ${deDatum(r.leistung)}`,
+      r.geraet ? `Gerät: ${r.geraet}${r.imei ? "  ·  IMEI/SN " + r.imei : ""}` : ""],
+    positionen: r.positionen || [],
+    summen: { netto: s.netto, brutto: s.brutto, mwst: s.mwst, mwstSatz: s.p, rabatt: s.rab, rabattSatz: r.rabatt, summe: s.sum, ku: !!r.ku },
+    texte: [zahlungsText(r), notiz, istRe ? "Danke für deinen Auftrag. Wir freuen uns auf die weitere Zusammenarbeit." : "Wir freuen uns auf deine Rückmeldung.", f.haftung],
+    gruss: f.name, schrift: o.schrift || null, qr: o.qr,
+    girocode: offen && f.iban && s.brutto > 0 ? { name: f.kontoinhaber || f.inhaber || f.ansprechpartner || f.name, iban: f.iban, bic: f.bic, betrag: s.brutto, zweck: r.nr } : null,
+  };
 }
 
 export function zeichneRechnung(doc, B) {

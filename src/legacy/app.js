@@ -5,7 +5,7 @@
  * wird zusätzlich der Konto-Speicher genutzt.
  */
 import BRAND_LOGO from "../assets/brandLogo.js";
-import { zeichneRechnung, fussSpalten, positionsTitel, positionsText, leistungsArt, garantieHinweis, GARANTIE_STANDARD, giroCodeText } from "./rechnungPdf.js";
+import { zeichneRechnung, belegDaten, belegSummen, empfaengerZeilen, positionsTitel, positionsText, leistungsArt, garantieHinweis, GARANTIE_STANDARD } from "./rechnungPdf.js";
 import qrcode from "qrcode-generator";
 
 // QR-Matrix für den GiroCode (UTF-8, Fehlerkorrektur M – wie von der EPC-Richtlinie empfohlen)
@@ -193,6 +193,8 @@ export function startApp(){
   // Belege zeigen nur das eigene Logo der Firma – ohne Logo steht dort der Firmenname.
   const docLogo = () => S.firma.logo || "";
   const pdfLayout = () => LAYOUTS[S.firma.pdfLayout] ? S.firma.pdfLayout : "modern";
+  // Website-Rechnungen immer im gemeinsamen Layout – sie müssen exakt so aussehen wie das PDF der Website
+  const layOf = r => (r && (r.websiteAuftrag || r.quelle==="website")) ? "neutral" : pdfLayout();
 
   /* ---------- derived ---------- */
   const kunde = id => S.kunden.find(k=>k.id===id);
@@ -264,12 +266,8 @@ export function startApp(){
     if(m==="netto") return a ? `netto · + ${numIn(p)} % MwSt. = ${eur(r2(a*(1+p/100)))} brutto` : `netto · zzgl. ${numIn(p)} % MwSt.`;
     const n=r2(a/(1+p/100)); return a ? `brutto · darin ${eur(r2(a-n))} MwSt. (netto ${eur(n)})` : `brutto · inkl. ${numIn(p)} % MwSt.`; }
   const posSumTag = () => ({ku:"Endpreise", netto:"netto", brutto:"brutto"})[posTax().m];
-  function calc(r){
-    const sum=r2(sumPos(r.positionen)); const rab=r2(sum*(+r.rabatt||0)/100); const base=r2(sum-rab); const p=dMwst(r);
-    if(!p) return {sum, rab, netto:base, mwst:0, brutto:base, p};
-    if(dBrutto(r)){ const netto=r2(base/(1+p/100)); return {sum, rab, netto, mwst:r2(base-netto), brutto:base, p}; }
-    const m=r2(base*p/100); return {sum, rab, netto:base, mwst:m, brutto:r2(base+m), p};
-  }
+  // Summen aus dem gemeinsamen Modul (rechnungPdf.js) – Website und WerkDoc rechnen gleich
+  function calc(r){ return belegSummen({positionen:r.positionen, rabatt:r.rabatt, ku:dKu(r), mwst:dMwst(r), brutto:dBrutto(r)}); }
   function dStatus(r){
     const s = r.status || (r.bezahlt ? "bezahlt" : "offen");
     if(dTyp(r)==="rechnung" && (s==="offen"||s==="versendet") && r.faellig && r.faellig<today()) return "ueberfaellig";
@@ -971,7 +969,37 @@ export function startApp(){
   let PK_OPEN=0;
   $("#pscrim").onclick=()=>{ if(Date.now()-PK_OPEN<450) return; closePicker(); };
 
-  function paperBox(r){ return `<div class="pscale" data-zoomdoc><div class="pinner">${paperHtml(r)}</div></div>`; }
+  function paperBox(r){
+    if(layOf(r)==="neutral") return pdfBox(r);
+    return `<div class="pscale" data-zoomdoc><div class="pinner">${paperHtml(r)}</div></div>`; }
+  // Layout „Neutral“: Die Vorschau ist das echte PDF (rechnungPdf.js), mit pdf.js gezeichnet – kein HTML-Nachbau.
+  // So sieht man in WerkDoc exakt das Blatt, das auch als PDF rausgeht und das die Website verschickt.
+  const PDF_PREV=new Map(); let PDFJS=null;
+  function ladePdfJs(){
+    if(!PDFJS) PDFJS=Promise.all([import("pdfjs-dist"), import("pdfjs-dist/build/pdf.worker.min.js?url")])
+      .then(([lib,w])=>{ lib.GlobalWorkerOptions.workerSrc=w.default; return lib; }).catch(e=>{ PDFJS=null; throw e; });
+    return PDFJS;
+  }
+  function pdfBox(r){
+    const id="pv"+uid(); PDF_PREV.set(id, r); setTimeout(()=>zeichnePdfVorschau(id), 0);
+    return `<div class="pscale" data-zoomdoc><div class="pinner pdfprev" id="${id}"><div class="pdfseite"></div></div></div>`;
+  }
+  async function zeichnePdfVorschau(id){
+    const r=PDF_PREV.get(id); PDF_PREV.delete(id); const el=document.getElementById(id); if(!el||!r) return;
+    try{
+      await SCHRIFT_P; const lib=await ladePdfJs();
+      const pdf=await lib.getDocument({data:buildPdfDoc(r).output("arraybuffer"), isEvalSupported:false}).promise;
+      const px=2.5, seiten=[];   // 2,5 Bildpunkte je Blatt-Pixel: scharf auch beim Vergrößern
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i), vp1=page.getViewport({scale:1}), vp=page.getViewport({scale:794/vp1.width*px});
+        const c=document.createElement("canvas"); c.width=Math.round(vp.width); c.height=Math.round(vp.height);
+        c.style.height=Math.round(vp.height/px)+"px";
+        await page.render({canvasContext:c.getContext("2d"), viewport:vp}).promise; seiten.push(c);
+      }
+      if(!document.getElementById(id)) return;
+      el.replaceChildren(...seiten); fitPapers();
+    }catch(e){ console.warn("PDF-Vorschau:", e); el.innerHTML=`<div class="pdfseite pdffehler">Vorschau nicht verfügbar – bitte „PDF speichern / teilen“ nutzen.</div>`; }
+  }
   function fitPapers(root=document){
     $$(".pscale", root).forEach(el=>{ const inner=$(".pinner",el); const pe=el.parentElement, cs=getComputedStyle(pe); const w=pe.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight); const s=Math.min(w/794, 2.5)*(+el.dataset.z||1);
       el.style.width=(794*s)+"px"; inner.style.transform=`scale(${s})`; el.style.height=(inner.offsetHeight*s)+"px"; });
@@ -1226,9 +1254,12 @@ export function startApp(){
         try{ nr=await reserveNr(d.typ); }
         catch(e){ if(b) b.disabled=false; make=false; toast(navigator.onLine===false || /offline/.test(e?.message||"") ? "Keine Internetverbindung – die Nummer wird online vergeben. Als Entwurf gespeichert." : "Nummer konnte nicht vergeben werden – als Entwurf gespeichert. Bitte später erneut erstellen."); } }
       if(d._kundeNeu) save("kunden", d._kundeNeu);
+      const kd=kunde(d.kundeId)||d._kundeNeu||{};
       const out={...d}; delete out._kundeNeu; delete out._kErr; delete out.bezahlt; delete out.kleinunternehmer;
       if(make){
         out.nr=nr; out.status="offen"; out.verlauf=[...(out.verlauf||[]), {t:nowStamp(), e:"Erstellt"}];
+        // Anschrift + Kundennummer fest in den Beleg: ändert sich später nie mehr, auch wenn der Kunde umzieht
+        out.empfaenger=empfaengerZeilen(kd); out.kundenNr=kundenNr(kd);
         if(out.typ==="rechnung") for(const p of out.positionen) if(p.teilId){ const t=S.teile.find(x=>x.id===p.teilId); if(t && t.kategorie!=="Dienstleistung") save("teile",{...t,bestand:Math.max(0,(+t.bestand||0)-(+p.menge||0))}); }
         if(out.ausDoc){ const src=S.rechnungen.find(x=>x.id===out.ausDoc); if(src && dStatus(src)!=="akzeptiert") save("rechnungen",{...src,status:"akzeptiert",verlauf:[...(src.verlauf||[]),{t:nowStamp(),e:`In Rechnung ${out.nr} übernommen`}]}); }
       } else if(!out.verlauf.length) out.verlauf=[{t:nowStamp(), e:"Entwurf angelegt"}];
@@ -1276,7 +1307,7 @@ export function startApp(){
         <textarea class="mailtext" id="dMail" readonly>${esc(mailText(r))}</textarea>
         <div class="btnrow"><button class="btn" id="dCopy">${ico.copy} Text kopieren</button>${st==="offen"?`<button class="btn ghost" id="dSent">Als versendet markieren</button>`:""}</div></div>`:""}
       <div class="card"><h4>${ico.doc}${T.l} als PDF</h4>
-        <span><b>${st==="entwurf"?"Entwurf":"Original"}</b> <span style="color:var(--muted)">· ${st==="entwurf"?"Nummer folgt beim Erstellen.":"Gespeicherte Fassung des Belegs."} · Design: ${LAYOUTS[pdfLayout()].l}</span></span>
+        <span><b>${st==="entwurf"?"Entwurf":"Original"}</b> <span style="color:var(--muted)">· ${st==="entwurf"?"Nummer folgt beim Erstellen.":"Gespeicherte Fassung des Belegs."} · Design: ${LAYOUTS[layOf(r)].l}</span></span>
         <div class="btnrow"><button class="btn soft" id="dPdf">${ico.share} PDF speichern / teilen</button></div>
         <div id="dThumb" style="margin-top:6px">${paperBox(r)}</div>
         <span style="color:var(--muted)">Zum Vergrößern auf das Blatt tippen.</span></div>
@@ -1340,22 +1371,14 @@ export function startApp(){
   function nextKundenNr(){ return String(Math.max(1000, ...S.kunden.map(k=>parseInt(kundenNr(k))||0))+1); }
   const eurTxt = n => new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2}).format(+n||0)+" EUR";
   const qtyTxt = n => new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:3}).format(+n||0);
-  function neutralData(r,D){
-    const {f,t,T,k}=D;
-    const meta=[[`${T.l}s-Nr.`, r.nr||shownNr(r)], [t==="rechnung"?"Rechnungsdatum":"Datum", deDate(r.datum)], ["Lieferdatum", deDate(r.leistung||r.datum)],
-      t==="rechnung"?null:["Gültig bis", deDate(r.faellig)], ["Ihre Kundennummer", kundenNr(k)], ["Ihr Ansprechpartner", f.ansprechpartner||""]].filter(x=>x&&x[1]);
-    const leist = (!r.leistung || r.leistung===r.datum) ? `${t==="rechnung"?"Rechnungsdatum":"Datum"} entspricht Leistungsdatum` : `Leistungsdatum: ${deDate(r.leistung)}`;
-    const thanks = t==="rechnung" ? "Wir bedanken uns für Ihren Auftrag und freuen uns auf die weitere Zusammenarbeit." : "Wir freuen uns auf Ihre Rückmeldung.";
-    const nm=(f.name||"").match(/^([A-ZÄÖÜ][a-zäöüß]+)([A-ZÄÖÜ][A-Za-zÄÖÜäöüß]*)$/);
-    return {meta, leist, thanks, nm, senderParts:[f.name,f.strasse,[f.plz,f.ort].filter(Boolean).join(" ")].filter(Boolean)};
-  }
   const LABOR_RX=/arbeit|lohn|pauschal|diagnose|einbau|montage|service|reinigung|software|datenrettung|fehlersuche|reparatur$/i;
   const posGroup = p => p.teilId ? (S.teile.find(x=>x.id===p.teilId)?.kategorie==="Dienstleistung" ? "lohn" : "teil") : (["Std.","Min."].includes(p.einheit) || LABOR_RX.test((p.bez||"").trim())) ? "lohn" : "teil";
   function docParts(r){
     const f=S.firma, c=calc(r), t=dTyp(r), T=TYP[t], X=docTexts(r), k=X.k, job=S.auftraege.find(a=>a.id===r.auftragId);
     const firm=[f.strasse, [f.plz,f.ort].filter(Boolean).join(" ")].filter(Boolean);
     const meta=[[t==="rechnung"?"Rechnungsdatum":"Datum", deDate(r.datum)],[T.dateL, deDate(r.faellig)],["Leistungsdatum", deDate(r.leistung||r.datum)],[`${T.l}s-Nr.`, r.nr||"—"]];
-    const addr=[k.firma&&k.firma!==k.name?k.firma:"",k.name,k.strasse,[k.plz,k.ort].filter(Boolean).join(" "),k.land].filter(Boolean);
+    // Anschrift aus dem Beleg (beim Erstellen festgeschrieben); nur Entwürfe und alte Belege nehmen den Kundenstamm
+    const addr=r.empfaenger?.length ? r.empfaenger : [k.firma&&k.firma!==k.name?k.firma:"",k.name,k.strasse,[k.plz,k.ort].filter(Boolean).join(" "),k.land].filter(Boolean);
     const due = t==="rechnung" ? (dStatus(r)==="bezahlt" ? `bezahlt${r.bezahltAm?" am "+deDate(r.bezahltAm):""}` : `fällig am ${deDate(r.faellig)}`) : `gültig bis ${deDate(r.faellig)}`;
     const devItems=[["Gerät",r.geraet||job?.geraet],["IMEI / Seriennr.",r.imei||job?.imei],["Auftrag",job?"#"+job.nr:""],["Zubehör",job?.zubehoer],["Angenommen",job?.created?deDate(job.created):""],["Repariert am",job?.erledigt?deDate(job.erledigt):""]].filter(x=>x[1]);
     return {f,c,t,T,X,k,job,firm,meta,addr,due,devItems, problem:job?.problem||"", sender:[f.name,...firm].filter(Boolean).join(" · ")};
@@ -1389,30 +1412,6 @@ export function startApp(){
     const body=(withSub=true)=>`${withSub?sub:""}${intro}${table}${sum}${note}${greet}<div class="spacer"></div>${haft}`;
     const devbox = (D.devItems.length||D.problem) ? `<div class="devbox"><div class="dv-grid">${D.devItems.map(([a,b])=>`<div><label>${a}</label><b>${e(b)}</b></div>`).join("")}</div>${D.problem?`<div class="dv-prob"><label>Fehlerbeschreibung</label>${e(D.problem)}</div>`:""}</div>` : "";
 
-    if(lay==="neutral"){ const B=neutralDaten(r,D), s=B.summen, N=neutralData(r,D);   // gleicher Aufbau wie rechnungPdf.js
-      const z2=n=>new Intl.NumberFormat("de-DE",{minimumFractionDigits:2,maximumFractionDigits:2}).format(+n||0), ein=u=>String(u||"Stk.").replace(/^(Stk|Std)\.$/,"$1");
-      const prow=(p,i)=>`<tr><td>${i+1}.</td><td><b>${e(p.bez)}</b>${p.text?`<br>${e(p.text).replace(/\n/g,"<br>")}`:""}</td><td class="r">${z2(p.menge)} ${e(ein(p.einheit))}</td><td class="r">${eurTxt(p.preis)}</td><td class="r">${eurTxt(p.menge*p.preis)}</td></tr>`;
-      const srow=(a,b,cls="")=>`<tr class="${cls}"><td></td><td colspan="3">${a}</td><td class="r">${b}</td></tr>`;
-      const tax = s.mwst ? srow(`zzgl. Umsatzsteuer ${numIn(s.mwstSatz)} %`, eurTxt(s.mwst)) : srow(s.ku?"Umsatzsteuer nicht erhoben gemäß §19UStG.":"Umsatzsteuer 0 %", "");
-      const meta=list=>list.filter(m=>m&&m[1]).map(([a,b])=>`<span>${e(a)}</span><span class="r">${e(b)}</span>`).join("");
-      const m2=meta(B.meta2);
-      return `<div class="paper lay-neutral">${stamp}
-        <div class="nt-logo">${logo}</div>
-        <div class="nt-head"><div><div class="nt-sender">${e([f.name,f.strasse,[f.plz,f.ort].filter(Boolean).join(" ")].filter(Boolean).join("  -  "))}</div><div class="addr">${br(B.empfaenger)}</div></div>
-          <div class="nt-meta"><div class="nt-nr"><span>${e(B.nrLabel)}</span><span class="r">${nrHtml}</span></div><div class="nt-mg">${meta(B.meta1)}</div>${m2?`<div class="nt-mg">${m2}</div>`:""}</div></div>
-        <div class="nt-title"><b>${e(T.l)} Nr. ${nrHtml}</b></div>
-        <div class="nt-sub">${B.unterzeile.filter(Boolean).map(e).join("<br>")}</div>
-        <table class="nt-tbl"><thead><tr><th>Pos.</th><th>Beschreibung</th><th class="r">Menge</th><th class="r">Einzelpreis</th><th class="r">Gesamtpreis</th></tr></thead>
-          <tbody>${r.positionen.length?r.positionen.map(prow).join(""):`<tr><td></td><td colspan="4">Noch keine Positionen</td></tr>`}</tbody>
-          <tbody class="nt-sum">${s.rabatt?srow("Summe Positionen",eurTxt(s.summe))+srow(`Rabatt (${numIn(s.rabattSatz)} %)`,"− "+eurTxt(s.rabatt)):""}${srow("Gesamtbetrag netto",eurTxt(s.netto),"g")}${tax}${srow("<b>Gesamtbetrag brutto</b>",`<b>${eurTxt(s.brutto)}</b>`,"g")}</tbody></table>
-        ${garantieHinweis(B.positionen)?`<div class="nt-text">${e(garantieHinweis(B.positionen))}</div>`:""}
-        ${B.girocode ? (()=>{ const g=B.girocode, m=qrMatrix(giroCodeText(g)); let p=""; for(let y=0;y<m.n;y++) for(let x=0;x<m.n;x++) if(m.dark(y,x)) p+=`M${x} ${y}h1v1h-1z`;
-          return `<div class="nt-giro"><figure><svg viewBox="0 0 ${m.n} ${m.n}" shape-rendering="crispEdges"><path d="${p}"/></svg><figcaption>GiroCode<br>mit der Banking-App scannen</figcaption></figure>
-            <div><b>Bezahlen per Überweisung</b>${[["Empfänger",g.name],["IBAN",String(g.iban).replace(/\s+/g,"").replace(/(.{4})/g,"$1 ").trim()],["BIC",g.bic],["Betrag",eurTxt(g.betrag)],["Verwendungszweck",g.zweck]].filter(x=>x[1]).map(([a,b])=>`<span>${e(a)}</span><span>${e(b)}</span>`).join("")}</div></div>`; })() : ""}
-        ${B.texte.filter(Boolean).map(t=>`<div class="nt-text">${e(t).replace(/\n/g,"<br>")}</div>`).join("")}
-        <div class="nt-greet">Mit freundlichen Grüßen<b>${N.nm?`<span>${e(N.nm[1])}</span><span class="b2">${e(N.nm[2])}</span>`:e(f.name||"")}</b></div>
-        <div class="spacer"></div><div class="nt-page">1/1</div>
-        <div class="nt-foot">${fussSpalten(B.firma).map(cl=>`<div>${cl.map(z=>`<p>${e(z)}</p>`).join("")}</div>`).join("")}</div></div>`; }
     if(lay==="minimal") return `<div class="paper lay-minimal">${stamp}
       <div class="mn-top">${logo}<span class="mn-from">${e(D.sender)}</span></div>
       <div class="mn-hero"><div><div class="mn-kicker">${T.l} · ${nrHtml}</div><div class="mn-amount">${eur(c.brutto)}</div><div class="mn-due">${e(D.due)}</div></div>${meta}</div>
@@ -1434,7 +1433,7 @@ export function startApp(){
   }
   function sampleDoc(){
     const real=[...S.rechnungen].filter(r=>dTyp(r)==="rechnung"&&r.nr).sort((a,b)=>(b.datum||"").localeCompare(a.datum||""))[0];
-    if(real) return {...real, status:S.firma.stempel?"bezahlt":real.status, bezahltAm:real.bezahltAm||today()};
+    if(real) return {...real, websiteAuftrag:"", quelle:"", status:S.firma.stempel?"bezahlt":real.status, bezahltAm:real.bezahltAm||today()};   // Beispiel immer im eingestellten Layout
     return { typ:"rechnung", nr:fmtNr("rechnung",1), status:S.firma.stempel?"bezahlt":"offen", bezahltAm:today(), _kundeNeu:{name:"Max Mustermann (Beispiel)", strasse:"Hauptstraße 5", plz:"12345", ort:"Musterstadt"},
       geraet:"iPhone X – Ladebuchse", imei:"35 291611 482736 4", datum:today(), leistung:today(), faellig:addDays(today(),+(S.firma.ziel??14)), mwst:S.firma.kleinunternehmer?0:19, brutto:!S.firma.netto, rabatt:0, notiz:defaultNote("rechnung"),
       positionen:[{bez:"Ladebuchse iPhone X",menge:1,einheit:"Stk.",preis:29},{bez:"Arbeitszeit / Reparatur",menge:1,einheit:"psch.",preis:S.firma.pauschale??39}] };
@@ -1451,28 +1450,21 @@ export function startApp(){
     catch(e){ if(e && !["cancelled","declined","aborted"].includes(e.code)) toast("PDF konnte nicht gespeichert werden"); }
   }
   // Schrift Open Sans fürs PDF (wie die Vorlage) – wird im Hintergrund nachgeladen, bis dahin Helvetica
-  let PDF_SCHRIFT=null; import("../assets/openSans.js").then(m=>{ PDF_SCHRIFT=m.default; }).catch(()=>{});
-  // Daten für das gemeinsame Layout „Neutral“ (rechnungPdf.js – dieselbe Datei nutzt die Website)
-  function neutralDaten(r, D){
-    const {f,c,t,T,X,k}=D, N=neutralData(r,D), byL=l=>N.meta.find(m=>m[0]===l);
-    const addr=[...D.addr]; if(addr.length && !k.land) addr.push("Deutschland");
-    const unter=[N.leist, r.geraet?`Gerät: ${r.geraet}${r.imei?"  ·  IMEI/SN "+r.imei:""}`:""];
-    return { logo:docLogo(), firma:{...f, land:f.land||"Deutschland"}, empfaenger:addr, titel:T.l, nrLabel:`${T.l}s-Nr.`, nr:shownNr(r),
-      meta1:[byL(t==="rechnung"?"Rechnungsdatum":"Datum"), byL("Lieferdatum"), byL("Gültig bis")],
-      meta2:[r.websiteAuftrag?["Auftrag", r.websiteAuftrag]:null, byL("Ihre Kundennummer"), byL("Ihr Ansprechpartner")],
-      unterzeile:unter, positionen:r.positionen,
-      summen:{ netto:c.netto, brutto:c.brutto, mwst:c.mwst, mwstSatz:c.p, rabatt:c.rab, rabattSatz:r.rabatt, summe:c.sum, ku:dKu(r) },
-      texte:[X.pay, belegNotiz(r), N.thanks, f.haftung], gruss:f.name, schrift:PDF_SCHRIFT, qr:qrMatrix,
-      // GiroCode nur auf offenen Rechnungen mit Nummer
-      girocode: t==="rechnung" && r.nr && !["bezahlt","storniert"].includes(dStatus(r)) && f.iban && c.brutto>0
-        ? { name:f.kontoinhaber||f.inhaber||f.ansprechpartner||f.name, iban:f.iban, bic:f.bic, betrag:c.brutto, zweck:r.nr } : null };
+  let PDF_SCHRIFT=null; const SCHRIFT_P=import("../assets/openSans.js").then(m=>{ PDF_SCHRIFT=m.default; }).catch(()=>{});
+  // Beleg-Datensatz fürs gemeinsame Layout „Neutral“ (rechnungPdf.js – dieselbe Datei nutzt die Website).
+  // Empfänger und Kundennummer kommen aus dem Beleg selbst (beim Erstellen festgeschrieben).
+  // Nur alte Belege ohne gespeicherte Anschrift (vor dem 12.11.2026) fallen auf den Kundenstamm zurück.
+  function belegFuerPdf(r){
+    const k=kunde(r.kundeId)||r._kundeNeu||{};
+    return {...r, typ:dTyp(r), status:dStatus(r)==="ueberfaellig"?"offen":dStatus(r), ku:dKu(r), mwst:dMwst(r), brutto:dBrutto(r),
+      empfaenger: r.empfaenger?.length ? r.empfaenger : empfaengerZeilen(k), kundenNr: r.kundenNr || kundenNr(k)};
   }
+  function neutralDaten(r){ return belegDaten(belegFuerPdf(r), {firma:S.firma, logo:docLogo(), schrift:PDF_SCHRIFT, qr:qrMatrix, nrAnzeige:shownNr(r)}); }
   function buildPdfDoc(r){
     const {jsPDF}=window.jspdf; const doc=new jsPDF({unit:"mm",format:"a4"});
-    const D=docParts(r), {f,c,t,T,X,job}=D, lay=pdfLayout();
-    if(lay==="neutral"){ zeichneRechnung(doc, neutralDaten(r,D));
-      if(X.stamp){ try{ doc.setPage(1); doc.saveGraphicsState(); doc.setGState(new doc.GState({opacity:.28})); doc.setTextColor(29,125,69); doc.setFont("helvetica","bold"); doc.setFontSize(46); doc.text("BEZAHLT",118,132,{angle:14}); doc.setFontSize(13); if(r.bezahltAm) doc.text(`am ${deDate(r.bezahltAm)}`,132,136,{angle:14}); doc.restoreGraphicsState(); }catch(e){} }
-      return doc; }
+    const lay=layOf(r);
+    if(lay==="neutral") return zeichneRechnung(doc, neutralDaten(r));   // ausschließlich das gemeinsame Modul – keine Zusätze
+    const D=docParts(r), {f,c,t,T,X,job}=D;
     const NAVY=[12,35,64], GREY=[93,102,115], INK=[21,27,36], LINE=[222,226,231], TINT=[238,243,248], WHITE=[255,255,255];
     const ACC=hexRgb((ACCENTS[f.akzent]||ACCENTS.repair).c), ACCT=ACC.map(v=>Math.round(255-(255-v)*.12));
     const txt=(s,x,yy,o)=>doc.text(Array.isArray(s)?s:String(s??""),x,yy,o);
