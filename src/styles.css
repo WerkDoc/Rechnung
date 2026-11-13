@@ -594,8 +594,7 @@ html.auth-open, html.auth-open body{overflow:hidden}
 .prow1 input{flex:1}
 .prow2{display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.1fr) minmax(0,1.1fr);gap:8px}
 .prow2 label{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--muted);font-weight:600;min-width:0}
-.pcard input,.pcard select,.pcard textarea{border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:9px 10px;min-width:0;width:100%}
-.pcard textarea.pd{font:inherit;font-size:13.5px;color:var(--muted);resize:vertical;min-height:40px}
+.pcard input,.pcard select{border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:9px 10px;min-width:0;width:100%}
 .pcard .r{text-align:right}
 .pcard .x{border:0;background:none;color:var(--faint);font-size:22px;line-height:1;padding:0 4px}
 .ptot{text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
@@ -632,11 +631,6 @@ html.auth-open, html.auth-open body{overflow:hidden}
 /* A4 sheet (paper is always white, in both themes) */
 .pscale{position:relative;overflow:hidden;width:100%;border-radius:4px;box-shadow:0 2px 14px rgba(0,0,0,.18);background:var(--paper);cursor:zoom-in}
 .pscale .pinner{position:absolute;top:0;left:0;transform-origin:0 0;width:794px}
-/* Layout „Neutral“: Vorschau = echtes PDF (pdf.js-Canvas), Blattbreite 794 px wie .paper */
-.pdfprev{background:#fff}
-.pdfprev canvas,.pdfprev .pdfseite{display:block;width:794px;height:1123px;background:#fff}
-.pdfprev canvas+canvas{border-top:14px solid var(--bg,#e9edf2)}
-.pdfprev .pdffehler{display:grid;place-items:center;color:#666;font:16px/1.4 Helvetica,Arial,sans-serif;padding:40px;text-align:center}
 .paper{position:relative;background:var(--paper);color:var(--ink);width:794px;min-height:1123px;padding:56px 72px 40px;font-family:Helvetica,Arial,sans-serif;font-size:12.5px;line-height:1.45;display:flex;flex-direction:column}
 .paper .ph1{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;min-height:70px}
 .paper .logo{max-height:84px;max-width:280px;width:auto;height:auto;object-fit:contain;display:block}
@@ -703,49 +697,40 @@ html.auth-open, html.auth-open body{overflow:hidden}
 .lay-kompakt .note{margin-top:10px}
 .lay-kompakt .greet{margin-top:14px}
 
-/* Neutral – gleiche Maße wie rechnungPdf.js (1 mm = 3,78 px) */
-@font-face{font-family:"Open Sans RM";src:url("./assets/fonts/OpenSans-Regular.ttf") format("truetype");font-weight:400;font-display:swap}
-@font-face{font-family:"Open Sans RM";src:url("./assets/fonts/OpenSans-Bold.ttf") format("truetype");font-weight:700;font-display:swap}
-.paper.lay-neutral{padding:30px 60px 20px 79px;font-size:12.4px;color:#1a1a1a;line-height:1.45;font-family:"Open Sans RM",Helvetica,Arial,sans-serif}
+/* Neutral */
+.paper.lay-neutral{padding:50px 76px 34px;font-size:11px;color:#1d1d1f}
 .nt-logo{display:flex;justify-content:center}
-.lay-neutral .logo{max-height:87px;max-width:318px}
-.nt-head{display:flex;justify-content:space-between;gap:24px;margin-top:70px}
-.nt-sender{font-size:8.4px;white-space:pre;color:#1a1a1a}
-.lay-neutral .addr{margin-top:34px;font-size:12.7px;line-height:1.18;min-height:80px}
-.nt-meta{width:249px;align-self:flex-start;margin-top:12px;margin-right:-6px}
-.nt-meta .nt-nr,.nt-meta .nt-mg{display:grid;grid-template-columns:1fr auto}
-.nt-meta .nt-nr span{font-size:15.3px}
-.nt-meta .nt-mg{font-size:9.3px;line-height:1.57;margin-top:2px}
-.nt-meta .nt-mg+.nt-mg{margin-top:10px}
-.nt-meta .r{text-align:right}
-.nt-title{margin-top:62px;padding-left:5px}
-.nt-title b{font-size:16.7px;font-weight:700}
-.nt-sub{font-size:12.4px;margin-top:30px;line-height:1.5;color:#444;padding-left:5px}
-.nt-tbl{width:calc(100% + 0px);border-collapse:collapse;margin-top:10px;font-size:12.4px;margin-left:5px}
-.nt-tbl th{border-bottom:0;background:#ebebeb;font-weight:700;text-align:left;padding:4px 4px;font-size:12.4px}
-.nt-tbl td{border-bottom:0;font-size:12.4px;padding:5px 4px 4px;vertical-align:top;line-height:1.75}
-.nt-tbl th:first-child,.nt-tbl td:first-child{width:34px;padding-left:5px}
-.nt-tbl th:nth-child(3){width:78px}.nt-tbl th:nth-child(4){width:104px}.nt-tbl th:nth-child(5){width:108px}
-.nt-tbl td b{font-weight:700}
+.lay-neutral .logo{max-height:92px;max-width:300px}
+.nt-head{display:flex;justify-content:space-between;gap:24px;margin-top:62px}
+.nt-sender{font-size:8.5px;font-weight:700;color:#1d1d1f;white-space:nowrap}
+.nt-sender i{font-style:normal;margin:0 5px}
+.lay-neutral .addr{margin-top:12px;font-size:12px;line-height:1.55;min-height:80px}
+.nt-meta{display:grid;grid-template-columns:auto auto;gap:5px 22px;align-self:flex-start;align-items:baseline}
+.nt-meta span{font-size:8px;letter-spacing:.12em;text-transform:uppercase;color:#4a4f57}
+.nt-meta b{font-size:9.5px;font-weight:700}
+.nt-title{display:flex;justify-content:space-between;align-items:baseline;margin-top:58px}
+.nt-title b{font-size:18px;font-weight:700;letter-spacing:-.01em}
+.nt-title span{font-size:11.5px}
+.nt-sub{font-size:11px;margin-top:16px;line-height:1.5}
+.nt-tbl{width:100%;border-collapse:collapse;margin-top:12px;font-size:11px}
+.nt-tbl th{border-bottom:0;background:#e4e4e4;font-weight:700;text-align:left;padding:8px 10px;font-size:11px}
+.nt-tbl td{border-bottom:0;font-size:11px;padding:9px 10px;vertical-align:top}
+.nt-tbl tbody:first-of-type tr:nth-child(even) td{background:#f1f1f1}
 .nt-tbl .r{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-.nt-sum{border-top:1px solid #dedede}
-.nt-sum td{padding:3px 4px;line-height:1.55}
-.nt-sum tr.g td{background:#ebebeb}
-.nt-text{margin-top:28px;font-size:12.4px;line-height:1.5;padding-left:5px}
-.nt-text+.nt-text{margin-top:10px}
-.nt-giro{display:flex;gap:22px;margin-top:14px;padding-left:5px;align-items:flex-start}
-.nt-giro figure{margin:0;width:98px;text-align:center;flex-shrink:0}
-.nt-giro svg{width:98px;height:98px;display:block}
-.nt-giro figcaption{font-size:8.4px;color:#444;margin-top:4px;line-height:1.2}
-.nt-giro>div{display:grid;grid-template-columns:128px auto;column-gap:0;row-gap:1px;font-size:12.4px;padding-top:6px}
-.nt-giro>div b{grid-column:1/-1;margin-bottom:4px}
-.nt-giro>div span:nth-child(even){color:#444}
-.nt-greet{margin-top:36px;font-size:12.4px;padding-left:5px;line-height:1.25}
+.nt-tbl .n{display:inline-block;width:30px}
+.nt-tbl .dd{display:flex}
+.nt-tbl .d{flex:1}
+.nt-sum td{padding:8px 10px}
+.nt-sum tr.g td{background:#ececec}
+.nt-text{margin-top:22px;font-size:11px;line-height:1.5}
+.nt-text+.nt-text{margin-top:14px}
+.nt-greet{margin-top:16px;font-size:11px}
 .nt-greet b{display:block;font-weight:700}
-.nt-greet .b2{color:#4a9cc9}
-.nt-page{text-align:right;font-size:9.3px;margin-right:-6px}
-.nt-foot{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-left:-3px;padding-top:24px;font-size:9.3px;line-height:1.5}
+.nt-greet .b2{color:#29aae1}
+.lay-neutral .haft{margin-bottom:12px}
+.nt-foot{display:grid;grid-template-columns:repeat(4,auto);justify-content:space-between;gap:14px;border-top:1px solid #d5d9df;padding-top:9px;font-size:8.5px;line-height:1.55}
 .nt-foot p{margin:0;white-space:nowrap}
+.nt-foot i{font-style:normal;font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:#6b7079;margin-right:6px}
 /* Minimal / Stripe */
 .paper.lay-minimal{padding:64px 80px 40px}
 .lay-minimal .mn-top{display:flex;justify-content:space-between;align-items:center;gap:20px}
@@ -1408,3 +1393,20 @@ body{overscroll-behavior-y:none;touch-action:manipulation}
 /* Kein Text-Markieren bei Tipp-Elementen, Eingaben bleiben normal */
 .is-standalone button,.is-standalone .tab,.is-standalone .chip,.is-standalone .card{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .is-standalone input,.is-standalone textarea,.is-standalone select{font-size:16px}
+
+/* v69 · Kundenliste: Wischen zum Löschen (wie Outlook) und Halten für das Menü */
+.swrow{position:relative;overflow:hidden}
+.swrow > .lrow{position:relative;z-index:1;background:var(--surface);will-change:transform;touch-action:pan-y}
+.swact{position:absolute;top:0;right:0;bottom:0;width:0;display:flex;justify-content:flex-end;background:#ef4444;overflow:hidden;z-index:0}
+.swact button{height:100%;min-width:96px;border:0;background:none;color:#fff;font-weight:700;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:0 14px;transition:transform .2s ease}
+.swact button svg{width:22px;height:22px}
+.swrow.armed .swact{background:#dc2626}
+.swrow.armed .swact button{transform:scale(1.12)}
+.swrow.swiping > .lrow{transition:none!important}
+.lrow.pressing{transform:scale(.975);background:var(--surface-2);transition:transform .5s cubic-bezier(.2,.8,.2,1),background-color .3s ease}
+.lrow.lifted{transform:scale(.985);background:var(--blue-soft);transition:transform .25s ease,background-color .25s ease}
+.toast.act{display:flex;align-items:center;gap:14px;pointer-events:auto;padding:8px 8px 8px 16px;width:max-content;max-width:calc(100% - 32px)}
+.toast.act span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.toast.act button{border:0;border-radius:9px;background:rgba(255,255,255,.18);color:inherit;font-weight:700;font-size:14px;padding:7px 12px;white-space:nowrap}
+:root[data-theme="dark"] .toast.act button{background:rgba(0,0,0,.12)}
+@media (prefers-reduced-motion: reduce){.swact,.swrow > .lrow{transition:none!important}}
