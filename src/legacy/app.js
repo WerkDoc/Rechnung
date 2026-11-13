@@ -278,7 +278,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"home", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {home:"Übersicht", auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="69";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="70";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["home","auftraege","kalender","rechnungen","kunden"];   // Einstellungen: Zahnrad oben rechts
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -923,6 +923,54 @@ export function startApp(){
   addEventListener("resize", ()=>segAll(false));
   segAll(false);
 
+  /* ---------- Rechnungen & Angebote: Halten = Schnellmenü (wie bei den Kunden) ---------- */
+  function docMenu(id, row){
+    const r=S.rechnungen.find(x=>x.id===id); if(!r) return;
+    const t=dTyp(r), T=TYP[t], st=dStatus(r), isR=t==="rechnung", nr=shownNr(r), k=kunde(r.kundeId);
+    const O=[]; const add=(label,sub,fn,cls)=>O.push({label,sub,fn,cls});
+    if(st==="entwurf"){
+      add("Bearbeiten", "Positionen, Kunde und Texte ändern", ()=>openDocEditor({id:r.id}));
+      add(T.make, "Nummer vergeben und fertigstellen", ()=>{ openDocEditor({id:r.id}); setTimeout(()=>$("#eMake")?.click(),0); });
+      add("Vorschau ansehen", "So sieht das Blatt aus", ()=>openViewer(r, `<b>Entwurf</b><span>Die Nummer wird beim Erstellen vergeben.</span>`));
+      add("Entwurf löschen", "Rückgängig per Hinweis oder Schütteln", ()=>{ remove("rechnungen", r.id); toastAction("Entwurf gelöscht", "Rückgängig", ()=>undoLast()); }, "danger");
+    } else {
+      add("Versenden", k?.mail ? `PDF teilen – z. B. an ${k.mail}` : "PDF teilen per WhatsApp, E-Mail oder AirDrop", ()=>{ savePdf(r); if(st==="offen") setTimeout(()=>toastAction("Als versendet markieren?", "Ja", ()=>setDocStatus(r,"versendet",false), 7000), 900); });
+      if(st==="offen") add("Als versendet markieren", "Rechnung ist beim Kunden", ()=>setDocStatus(r,"versendet",false));
+      if(isR && ["offen","versendet","ueberfaellig"].includes(st)) add("Als bezahlt markieren", `Geld ist eingegangen (heute, ${eur(calc(r).brutto)})`, ()=>setDocStatus(r,"bezahlt",false));
+      if(isR && st==="bezahlt") add("Zahlung zurücknehmen", "Wieder als offen führen", ()=>setDocStatus(r,"offen",false));
+      if(!isR && ["offen","versendet"].includes(st)){ add("Angenommen", "Kunde hat zugesagt", ()=>setDocStatus(r,"akzeptiert",false)); add("Abgelehnt", "Kunde hat abgesagt", ()=>setDocStatus(r,"abgelehnt",false)); }
+      if(!isR && st!=="abgelehnt") add("In Rechnung umwandeln", "Positionen werden übernommen", ()=>{ const d=newDocFrom({typ:"rechnung", from:r}); renderEditor(d,false); });
+      add("Ansehen", "Blatt und Verlauf öffnen", ()=>openDoc(r.id));
+      if(isR && st!=="storniert") add("Korrigieren", "Stornieren und als neue Rechnung kopieren", ()=>docStorno(r, true));
+      if(isR && st==="storniert") add("Als neue Rechnung kopieren", "Gleiche Positionen, neue Nummer", ()=>{ const d=newDocFrom({typ:"rechnung", from:r}); renderEditor(d,false); });
+      if(isR && st!=="storniert") add("Stornieren", "Ungültig – bleibt 10 Jahre zur Nachweisführung", ()=>docStorno(r, false), "danger");
+    }
+    row?.classList.add("lifted");
+    openPicker(`${T.l} ${nr}${k?` · ${k.name}`:""}`, O.map((o,i)=>({label:o.label, sub:o.sub, cls:o.cls, i})), o=>O[o.i].fn());
+  }
+  // Stornieren mit Rückfrage; auf Wunsch gleich eine korrigierte Kopie öffnen
+  function docStorno(r, korrektur){
+    setTimeout(()=>openPicker(`${shownNr(r)} stornieren?`, [
+      {label: korrektur ? "Stornieren & neu erstellen" : "Ja, stornieren", sub: korrektur ? "Danach öffnet sich eine Kopie zum Korrigieren" : "Kann über „Status ändern“ zurückgesetzt werden", v:"ja", cls:"danger"}],
+      () => { setDocStatus(r, "storniert", false); if(korrektur){ const d=newDocFrom({typ:"rechnung", from:r}); renderEditor(d,false); } }), 260);
+  }
+  (()=>{
+    let g=null, suppress=0;
+    const cancel=()=>{ if(!g) return; clearTimeout(g.t); g.b.classList.remove("pressing"); };
+    document.addEventListener("touchstart", e => {
+      g=null; if(e.touches.length!==1 || UI.sel) return;
+      const b=e.target.closest?.("#main .lrow[data-doc]"); if(!b) return;
+      const t=e.touches[0]; g={b, x:t.clientX, y:t.clientY, fired:false};
+      b.classList.add("pressing");
+      g.t=setTimeout(()=>{ if(!g || g.b!==b) return; g.fired=true; b.classList.remove("pressing"); try{ navigator.vibrate?.(35); }catch(_){} docMenu(b.dataset.doc, b); }, 520);
+    }, {passive:true, capture:true});
+    document.addEventListener("touchmove", e => { if(!g || g.fired) return; const t=e.touches[0]; if(Math.hypot(t.clientX-g.x, t.clientY-g.y)>9){ cancel(); g=null; } }, {passive:true, capture:true});
+    const end=()=>{ if(!g) return; const s=g; cancel(); g=null; if(s.fired) suppress=Date.now(); };
+    document.addEventListener("touchend", end, {capture:true}); document.addEventListener("touchcancel", end, {capture:true});
+    document.addEventListener("click", e => { if(Date.now()-suppress<450 && e.target.closest?.("#main [data-doc]")){ e.preventDefault(); e.stopPropagation(); } }, true);
+    document.addEventListener("contextmenu", e => { const b=e.target.closest?.("#main .lrow[data-doc]"); if(!b || UI.sel) return; e.preventDefault(); docMenu(b.dataset.doc, b); });
+  })();
+
   /* ---------- Kundenliste: Halten = Menü (Bearbeiten/Löschen), nach links wischen = Löschen ---------- */
 const TRASH = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6"/></svg>`;
 function kundeRowWrap(k, inner){
@@ -1416,10 +1464,10 @@ function kundeMenu(id, row){
     };
     const dl=$("#dDel"); if(dl) dl.onclick=()=>confirmBox(st==="entwurf"?"Diesen Entwurf löschen?":`${T.l} ${esc(r.nr)} wirklich löschen?`, ()=>{ remove("rechnungen",r.id); closeSheet(); toast("Gelöscht"); });
   }
-  function setDocStatus(r, s){
+  function setDocStatus(r, s, reopen=true){
     const o={...r, status:s, verlauf:[...(r.verlauf||[]), {t:nowStamp(), e:`Status: ${DST[s]}`}]};
     if(s==="bezahlt") o.bezahltAm=today(); else if(r.status==="bezahlt") o.bezahltAm="";
-    delete o.bezahlt; save("rechnungen",o); toast(`Status: ${DST[s]}`); openDoc(r.id);
+    delete o.bezahlt; save("rechnungen",o); toast(`Status: ${DST[s]}`); if(reopen) openDoc(r.id);
   }
   function mailText(r){
     const k=kunde(r.kundeId)||{}, f=S.firma, t=dTyp(r), c=calc(r);
