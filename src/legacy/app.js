@@ -934,7 +934,7 @@ export function startApp(){
       add("Vorschau ansehen", "So sieht das Blatt aus", ()=>openViewer(r, `<b>Entwurf</b><span>Die Nummer wird beim Erstellen vergeben.</span>`));
       add("Entwurf löschen", "Rückgängig per Hinweis oder Schütteln", ()=>{ remove("rechnungen", r.id); toastAction("Entwurf gelöscht", "Rückgängig", ()=>undoLast()); }, "danger");
     } else {
-      add("Versenden", k?.mail ? `PDF teilen – z. B. an ${k.mail}` : "PDF teilen per WhatsApp, E-Mail oder AirDrop", ()=>{ savePdf(r); if(st==="offen") setTimeout(()=>toastAction("Als versendet markieren?", "Ja", ()=>setDocStatus(r,"versendet",false), 7000), 900); });
+      if(!["storniert","abgelehnt"].includes(st)) add("Versenden", k?.mail ? `PDF teilen – z. B. an ${k.mail}` : "PDF teilen per WhatsApp, E-Mail oder AirDrop", ()=>{ savePdf(r); if(st==="offen") setTimeout(()=>toastAction("Als versendet markieren?", "Ja", ()=>setDocStatus(r,"versendet",false), 7000), 900); });
       if(st==="offen") add("Als versendet markieren", "Rechnung ist beim Kunden", ()=>setDocStatus(r,"versendet",false));
       if(isR && ["offen","versendet","ueberfaellig"].includes(st)) add("Als bezahlt markieren", `Geld ist eingegangen (heute, ${eur(calc(r).brutto)})`, ()=>setDocStatus(r,"bezahlt",false));
       if(isR && st==="bezahlt") add("Zahlung zurücknehmen", "Wieder als offen führen", ()=>setDocStatus(r,"offen",false));
@@ -946,7 +946,7 @@ export function startApp(){
       if(isR && st!=="storniert") add("Stornieren", "Ungültig – bleibt 10 Jahre zur Nachweisführung", ()=>docStorno(r, false), "danger");
     }
     row?.classList.add("lifted");
-    openPicker(`${T.l} ${nr}${k?` · ${k.name}`:""}`, O.map((o,i)=>({label:o.label, sub:o.sub, cls:o.cls, i})), o=>O[o.i].fn());
+    openPicker(`${T.l} ${st==="entwurf"?"(Entwurf)":nr}${k?` · ${k.name}`:""}`, O.map((o,i)=>({label:o.label, sub:o.sub, cls:o.cls, i})), o=>O[o.i].fn());
   }
   // Stornieren mit Rückfrage; auf Wunsch gleich eine korrigierte Kopie öffnen
   function docStorno(r, korrektur){
