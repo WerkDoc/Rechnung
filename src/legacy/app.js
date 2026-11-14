@@ -278,7 +278,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"home", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {home:"Übersicht", auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="70";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="71";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["home","auftraege","kalender","rechnungen","kunden"];   // Einstellungen: Zahnrad oben rechts
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -627,7 +627,11 @@ export function startApp(){
     const inner = `${bdg(DOC_C[st]||"blue", t==="rechnung"?LU.doc:LU.clip)}
       <span class="lmain"><b>${esc(kName(r.kundeId))}</b><small>${esc([shownNr(r), deDate(r.datum), t!=="rechnung"?TYP[t].l:"", r.geraet||""].filter(Boolean).join(" · "))}</small></span>
       <span class="lend"><strong class="num">${eur(calc(r).brutto)}</strong><span class="pill s-${st}">${DST[st]}</span></span>`;
-    return !noPick && UI.sel?.kind==="rechnungen" && UI.view==="rechnungen" ? pickWrap("rechnungen", r.id, inner) : `<button class="lrow" data-doc="${r.id}">${inner}${CHEV}</button>`;
+    if(!noPick && UI.sel?.kind==="rechnungen" && UI.view==="rechnungen") return pickWrap("rechnungen", r.id, inner);
+    const row=`<button class="lrow" data-doc="${r.id}">${inner}${CHEV}</button>`;
+    // Offene Rechnungen in der Liste: nach rechts wischen = bezahlt
+    return !noPick && UI.view==="rechnungen" && t==="rechnung" && ["offen","versendet","ueberfaellig"].includes(st)
+      ? `<div class="swpay" data-swp="${r.id}"><div class="payact"><button type="button" data-swpay="${r.id}" aria-label="Als bezahlt markieren">${PAYICO}<span>Bezahlt</span></button></div>${row}</div>` : row;
   }
   function vRechnungen(){
     const isR = UI.docSeg==="rechnungen";
@@ -923,6 +927,61 @@ export function startApp(){
   addEventListener("resize", ()=>segAll(false));
   segAll(false);
 
+  /* ---------- Rechnungen: nach rechts wischen = als bezahlt markieren ---------- */
+  const PAYICO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>`;
+  function docBezahlt(id){
+    const r=S.rechnungen.find(x=>x.id===id); if(!r) return;
+    setDocStatus(r, "bezahlt", false);
+    toastAction(`${shownNr(r)} bezahlt · ${eur(calc(r).brutto)}`, "Rückgängig", ()=>undoLast());
+  }
+  (()=>{
+    let g=null, OPEN=null, suppress=0;
+    const ACT=96;
+    const W = row => row.getBoundingClientRect().width;
+    const btnOf = row => row.querySelector(":scope > .lrow");
+    const setX = (row, x, anim) => { const b=btnOf(row); if(!b) return; const tr = anim ? "transform .32s cubic-bezier(.2,.9,.3,1)" : "none";
+      b.style.transition=tr; b.style.transform = x ? `translateX(${x}px)` : "";
+      const a=row.querySelector(".payact"); if(a){ a.style.transition = anim ? "width .32s cubic-bezier(.2,.9,.3,1)" : "none"; a.style.width = Math.max(0,x)+"px"; } };
+    const close = (row, anim=true) => { if(!row) return; setX(row, 0, anim); row.classList.remove("open","armed","swiping"); if(OPEN===row) OPEN=null; };
+    const pay = row => { const id=row.dataset.swp; setX(row, W(row), true); row.classList.add("armed");
+      try{ navigator.vibrate?.(20); }catch(_){}
+      setTimeout(()=>{ OPEN=null; docBezahlt(id); }, 300); };
+    document.addEventListener("touchstart", e => {
+      if(e.touches.length!==1){ g=null; return; }
+      const row=e.target.closest?.("#main .swpay");
+      if(OPEN && OPEN!==row && !e.target.closest?.(".payact")){ close(OPEN); suppress=Date.now(); }
+      if(!row || UI.sel || e.target.closest(".payact")) return;
+      const t=e.touches[0];
+      g={row, x:t.clientX, y:t.clientY, lock:0, base: row.classList.contains("open") ? ACT : 0, cur:0, t0:performance.now()};
+      g.cur=g.base;
+    }, {passive:true, capture:true});
+    document.addEventListener("touchmove", e => {
+      if(!g) return; const t=e.touches[0], dx=t.clientX-g.x, dy=t.clientY-g.y;
+      if(!g.lock){ if(Math.abs(dx)<9 && Math.abs(dy)<9) return; g.lock = Math.abs(dx)>Math.abs(dy)*1.15 ? 1 : -1; if(g.lock===1) g.row.classList.add("swiping"); }
+      if(g.lock!==1) return;
+      if(e.cancelable) e.preventDefault();
+      let x=g.base+dx; if(x<0) x=x*.25;                           // nach links nur leicht nachgeben
+      g.cur=x; setX(g.row, x, false); g.row.classList.toggle("armed", x > W(g.row)*.5);
+    }, {passive:false, capture:true});
+    const end = () => {
+      if(!g) return; const s=g; g=null;
+      if(s.lock!==1) return;
+      suppress=Date.now(); s.row.classList.remove("swiping");
+      const v=(s.cur-s.base)/Math.max(1,performance.now()-s.t0);
+      if(s.cur > W(s.row)*.5 || (v > 1.1 && s.cur > ACT)) return pay(s.row);          // ganz durchgewischt → bezahlt
+      if(s.cur > ACT*.5 || v > .45){ setX(s.row, ACT, true); s.row.classList.add("open"); s.row.classList.remove("armed"); OPEN=s.row; return; }
+      close(s.row);
+    };
+    document.addEventListener("touchend", end, {capture:true});
+    document.addEventListener("touchcancel", end, {capture:true});
+    document.addEventListener("click", e => {
+      const b=e.target.closest?.("[data-swpay]");
+      if(b){ e.preventDefault(); e.stopPropagation(); const row=b.closest(".swpay"); if(row) pay(row); return; }
+      if(Date.now()-suppress<450 && e.target.closest?.("#main")){ e.preventDefault(); e.stopPropagation(); return; }
+      if(OPEN && e.target.closest?.("#main")){ e.preventDefault(); e.stopPropagation(); close(OPEN); }
+    }, true);
+  })();
+  
   /* ---------- Rechnungen & Angebote: Halten = Schnellmenü (wie bei den Kunden) ---------- */
   function docMenu(id, row){
     const r=S.rechnungen.find(x=>x.id===id); if(!r) return;
