@@ -179,6 +179,13 @@ export function startApp(){
     else if(HOST_THEME) root.setAttribute("data-theme", HOST_THEME); else root.removeAttribute("data-theme");
   }
   function setTheme(t){ try{ localStorage.setItem("rm-theme", t); }catch(e){} applyTheme(t); render(); }
+  // v72 · Design „Plastisch“ (Neumorph, Standard) oder „Klassisch“ – index.html setzt es schon vor dem ersten Bild
+  function getStyle(){ try{ return localStorage.getItem("rm-style")==="klassisch" ? "klassisch" : "neu"; }catch(e){ return "neu"; } }
+  function applyStyle(v=getStyle()){ document.documentElement.setAttribute("data-style", v); }
+  const NEU = () => document.documentElement.getAttribute("data-style")!=="klassisch";
+  function setStyle(v){ try{ localStorage.setItem("rm-style", v); }catch(e){}
+    const go=()=>{ applyStyle(v); render(); };
+    if(document.startViewTransition && !reducedMotion()) document.startViewTransition(go); else go(); }
   function ensureOwnLogo(){
     // Früher war das RepairMobile-Logo Standard für alle. Jetzt nur noch im RepairMobile-Konto – einmalig fest eingetragen.
     if(typeof CLOUD!=="undefined" && CLOUD.user && !CLOUD.ready) return;   // erst nach dem Laden aus der Cloud entscheiden
@@ -278,7 +285,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"home", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {home:"Übersicht", auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="71";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="72";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["home","auftraege","kalender","rechnungen","kunden"];   // Einstellungen: Zahnrad oben rechts
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -462,12 +469,27 @@ export function startApp(){
       ...S.rechnungen.map(r=>({k:"doc", d:r.updated||r.created||r.datum||"", o:r}))
     ].sort((x,y)=>String(y.d).localeCompare(String(x.d))).slice(0,6);
     const recRow=e=> e.k==="job" ? jobCard(e.o) : docCard(e.o, true);
+    const bezahltMon=invs.filter(r=>r.nr && (r.datum||"").startsWith(mon) && dStatus(r)==="bezahlt").reduce((x,r)=>x+calc(r).brutto,0);
+    const eur0=v=>new Intl.NumberFormat("de-DE",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(v);
+    if(NEU()){
+      const pct=umsatz>0?Math.round(Math.min(1,bezahltMon/umsatz)*100):0, C=2*Math.PI*42;
+      return `<button class="revcard" data-go="rechnungen:alle" aria-label="Umsatz im ${monName}: ${eur(umsatz)}, davon ${pct} % bezahlt">
+          <span class="ring"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="rgGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#14284a"/></linearGradient></defs>
+            <circle class="rtrack" cx="50" cy="50" r="42"/><circle class="rval" cx="50" cy="50" r="42" stroke-dasharray="${(C*pct/100).toFixed(1)} ${C.toFixed(1)}"/></svg><b class="num">${pct}%</b><small>bezahlt</small></span>
+          <span class="revtxt"><b class="num">${eur0(umsatz)}</b><span>Umsatz im ${monName}</span><small><i class="dot g"></i>${eur0(bezahltMon)} bezahlt</small><small><i class="dot b"></i>${eur0(Math.max(0,umsatz-bezahltMon))} offen</small></span></button>
+        <div class="kpis two">
+        ${kpi("rechnungen:offen", ueber.length?"red":"blue", ueber.length?LU.alert:LU.doc, offen.length, "Offene Rechnungen", ueber.length?`${ueber.length} überfällig`:eur(offenSum), ueber.length>0)}
+        ${kpi("auftraege:offen", "indigo", LU.wrench, aktiv, "Offene Aufträge", abh?`${abh} abholbereit`:`${neuMon} neu im Monat`)}
+        </div>
+        ${homeRest()}`;
+    }
     return `<div class="kpis">
         ${kpi("rechnungen:offen", ueber.length?"red":"blue", ueber.length?LU.alert:LU.doc, offen.length, "Offene Rechnungen", ueber.length?`${ueber.length} überfällig`:eur(offenSum), ueber.length>0)}
         ${kpi("rechnungen:alle", "green", LU.trend, new Intl.NumberFormat("de-DE",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(umsatz), "Umsatz", `im ${monName}`)}
         ${kpi("auftraege:offen", "indigo", LU.wrench, aktiv, "Offene Aufträge", abh?`${abh} abholbereit`:`${neuMon} neu im Monat`)}
       </div>
-      <h2 class="sech">Schnellaktionen</h2>
+      ${homeRest()}`;
+    function homeRest(){ return `<h2 class="sech">Schnellaktionen</h2>
       <div class="qgrid">
         ${qa("qaRechnung","blue",LU.doc,"Rechnung","erstellen")}
         ${qa("qaAuftrag","indigo",LU.phone,"Auftrag","Gerät annehmen")}
@@ -476,7 +498,7 @@ export function startApp(){
       </div>
       <h2 class="sech">Letzte Aktivitäten</h2>
       ${recent.length?`<div class="lgroup">${recent.map(recRow).join("")}</div>`
-        :`<div class="lgroup"><div class="lrow static">${bdg("gray",LU.sparkle)}<span class="lmain"><b>Noch nichts los</b><small>Neue Aufträge und Rechnungen erscheinen hier.</small></span></div>${S.auftraege.length?"":`<button class="lrow" data-act="examples">${bdg("blue",LU.clip)}<span class="lmain"><b>Beispiel-Daten laden</b><small>Zum Ausprobieren, jederzeit löschbar</small></span>${CHEV}</button>`}</div>`}`;
+        :`<div class="lgroup"><div class="lrow static">${bdg("gray",LU.sparkle)}<span class="lmain"><b>Noch nichts los</b><small>Neue Aufträge und Rechnungen erscheinen hier.</small></span></div>${S.auftraege.length?"":`<button class="lrow" data-act="examples">${bdg("blue",LU.clip)}<span class="lmain"><b>Beispiel-Daten laden</b><small>Zum Ausprobieren, jederzeit löschbar</small></span>${CHEV}</button>`}</div>`}`; }
   }
 
   function jobCard(a){
@@ -622,10 +644,11 @@ export function startApp(){
         : `<div class="card calempty">${emptyIcon("cal",1)}<span style="color:var(--muted)">Nichts eingetragen.</span><button class="btn sm" data-act="newjobday">+ Termin an diesem Tag</button></div>`}</div>`;
   }
 
+  const LOCKICO='<i class="lk" title="Gesperrt – nicht löschbar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg></i>';
   function docCard(r, noPick){
     const st=dStatus(r), t=dTyp(r);
     const inner = `${bdg(DOC_C[st]||"blue", t==="rechnung"?LU.doc:LU.clip)}
-      <span class="lmain"><b>${esc(kName(r.kundeId))}</b><small>${esc([shownNr(r), deDate(r.datum), t!=="rechnung"?TYP[t].l:"", r.geraet||""].filter(Boolean).join(" · "))}</small></span>
+      <span class="lmain"><b>${esc(kName(r.kundeId))}</b><small>${docLocked(r)?LOCKICO:""}${esc([shownNr(r), deDate(r.datum), t!=="rechnung"?TYP[t].l:"", r.geraet||""].filter(Boolean).join(" · "))}</small></span>
       <span class="lend"><strong class="num">${eur(calc(r).brutto)}</strong><span class="pill s-${st}">${DST[st]}</span></span>`;
     if(!noPick && UI.sel?.kind==="rechnungen" && UI.view==="rechnungen") return pickWrap("rechnungen", r.id, inner);
     const row=`<button class="lrow" data-doc="${r.id}">${inner}${CHEV}</button>`;
@@ -695,7 +718,7 @@ export function startApp(){
     const csvCount=csvRows().length, ausCount=ausRowsFor(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : "")).length;
     const acc=(id,c,icon,title,meta,inner)=>`<div class="acc${UI.mopen===id?" open":""}" id="${id}"><button class="lrow" data-acc="${id}" aria-expanded="${UI.mopen===id}">${bdg(c,icon)}<span class="lmain"><b>${title}</b>${meta?`<small>${meta}</small>`:""}</span>${CHEV}</button><div class="accbody">${inner}</div></div>`;
     const nav=(act,c,icon,title,meta,end="")=>`<button class="lrow" data-act="${act}">${bdg(c,icon)}<span class="lmain"><b>${title}</b>${meta?`<small>${meta}</small>`:""}</span>${end?`<span class="lend">${end}</span>`:""}${CHEV}</button>`;
-    const themeL={light:"Hell",dark:"Dunkel",system:"Wie das System"}[theme];
+    const themeL={light:"Hell",dark:"Dunkel",system:"Wie das System"}[theme] + (NEU()?" · Plastisch":" · Klassisch");
     return `${accountGroup()}
       <div class="sgroup"><span class="glabel">Firma &amp; Vorlagen</span><div class="lgroup">
         ${nav("firma","blue",LU.building,"Firmendaten", f.name?esc(f.name)+(f.ort?" · "+esc(f.ort):""):"Name, Adresse, Bank, Logo", `<span class="pill ${filled===5?"s-bezahlt":"s-versendet"}">${filled===5?"Vollständig":filled+" von 5"}</span>`)}
@@ -734,6 +757,8 @@ export function startApp(){
       <div class="sgroup"><span class="glabel">App-Einstellungen</span><div class="lgroup">
         ${acc("grpLook","gray",LU.moon,"Erscheinungsbild", themeL, `<div class="card"><div class="setrow"><span class="lbl">Erscheinungsbild der App</span>
           <div class="seg">${[["light","Hell"],["dark","Dunkel"],["system","System"]].map(([k,l])=>`<button data-themeset="${k}" aria-pressed="${theme===k}">${l}</button>`).join("")}</div></div>
+          <div class="setrow"><span class="lbl">Design</span>
+          <div class="seg">${[["neu","Plastisch"],["klassisch","Klassisch"]].map(([k,l])=>`<button data-styleset="${k}" aria-pressed="${getStyle()===k}">${l}</button>`).join("")}</div></div>
         </div>`)}
         ${acc("grpBedienung","gray",LU.hand,"Bedienung", "Schütteln zum Rückgängigmachen", `<div class="card">
         <div class="exrow"><span><b>Schütteln zum Rückgängigmachen</b><small>${shakeInfo()}</small></span>${shakeBtn()}</div></div>`)}
@@ -789,6 +814,7 @@ export function startApp(){
       if(t.dataset.f){ UI.filter=t.dataset.f; render(); return; }
       if(t.dataset.df){ UI.docFilter=t.dataset.df; render(); return; }
       if(t.dataset.seg){ UI.docSeg=t.dataset.seg; UI.docFilter="alle"; if(UI.sel?.kind==="rechnungen") UI.sel=null; render(); return; }
+      if(t.dataset.styleset){ setStyle(t.dataset.styleset); toast(t.dataset.styleset==="neu"?"Design: Plastisch":"Design: Klassisch"); return; }
       if(t.dataset.themeset){ setTheme(t.dataset.themeset); toast({light:"Helles Design",dark:"Dunkles Design",system:"Design folgt dem System"}[t.dataset.themeset]); return; }
       if(t.dataset.akzent){ setFirma({akzent:t.dataset.akzent}); toast(`Akzentfarbe: ${ACCENTS[t.dataset.akzent].l}`); return; }
       if(t.dataset.pdflayout){ setFirma({pdfLayout:t.dataset.pdflayout}); toast(`PDF-Design: ${LAYOUTS[t.dataset.pdflayout].l}`); return; }
@@ -1210,7 +1236,7 @@ function kundeMenu(id, row){
     return `<div class="pcard" ${p.teilId?`data-teil="${p.teilId}"`:""}>
       <div class="prow1"><input class="pt" placeholder="Titel der Position" value="${esc(p.bez)}" aria-label="Titel der Position"><button class="x" type="button" aria-label="Position entfernen">×</button></div>
       <textarea class="pd" rows="${String(p.text||"").split("\n").length>1?2:1}" placeholder="Beschreibung unter dem Titel (optional)" aria-label="Beschreibung der Position">${esc(p.text||"")}</textarea>
-      <div class="prow2"><label>Menge<input class="pm r" inputmode="decimal" value="${numIn(p.menge??1)}"></label><label>Einheit<select class="pe">${einhOpts(p.einheit)}</select></label><label><span class="pplbl">${priceLabel()}</span><input class="pp r" inputmode="decimal" placeholder="0,00" value="${numIn(p.preis)}"></label></div>
+      <div class="prow2"><label>Menge<span class="qstep"><button type="button" class="qm" data-qd="-1" aria-label="Menge verringern">−</button><input class="pm r" inputmode="decimal" value="${numIn(p.menge??1)}"><button type="button" class="qm" data-qd="1" aria-label="Menge erhöhen">+</button></span></label><label>Einheit<select class="pe">${einhOpts(p.einheit)}</select></label><label><span class="pplbl">${priceLabel()}</span><input class="pp r" inputmode="decimal" placeholder="0,00" value="${numIn(p.preis)}"></label></div>
       <div class="ptot">${eur((+p.menge||0)*(+p.preis||0))}</div><div class="ptax tm-${posTax().m}">${posTaxNote((+p.menge||0)*(+p.preis||0))}</div></div>`;
   }
   function posSection(pos, title="Positionen"){
@@ -1239,7 +1265,8 @@ function kundeMenu(id, row){
         : {bez:positionsTitel(t.bez,"",""), text:positionsText(t.garantie, imei, t.bez, S.firma.garantie), menge:1, einheit:t.einheit||"Stk.", preis:t.preis, teilId:t.id}); }
       at.value=""; };
     rows.oninput=upd; rows.onchange=upd;
-    rows.onclick=e=>{ if(e.target.classList.contains("x")){ e.target.closest(".pcard").remove(); upd(); } };
+    rows.onclick=e=>{ if(e.target.classList.contains("x")){ e.target.closest(".pcard").remove(); upd(); return; }
+      const q=e.target.closest(".qm"); if(q){ e.preventDefault(); const inp=$(".pm",q.parentNode); const v=Math.max(0, Math.round((parseNum(inp.value)+(+q.dataset.qd))*100)/100); inp.value=numIn(v||0); upd(); } };
   }
   function readPos(){ return $$("#posRows .pcard").map(r=>{ const tx=($(".pd",r)?.value||"").trim(); return {bez:$(".pt",r).value.trim(), ...(tx?{text:tx}:{}), menge:parseNum($(".pm",r).value), einheit:$(".pe",r).value, preis:parseNum($(".pp",r).value), ...(r.dataset.teil?{teilId:r.dataset.teil}:{})}; }).filter(p=>p.bez||p.preis); }
 
@@ -1473,10 +1500,11 @@ function kundeMenu(id, row){
     const verlauf=[...(r.verlauf||[])].reverse();
     openSheet(`${T.l}<small>${esc(shownNr(r))}</small>`, `
       <div class="card" style="gap:10px">
-        <div class="row"><span class="pill s-${st}">${DST[st]}</span><span class="tag mono" style="font-size:12.5px">${esc(shownNr(r))}</span></div>
+        <div class="row"><span class="pill s-${st}">${DST[st]}</span><span class="tag mono" style="font-size:12.5px">${docLocked(r)&&NEU()?`<span class="lockb">${LOCKICO}</span>`:""}${esc(shownNr(r))}</span></div>
         <div class="big">${eur(c.brutto)}</div>
         <div class="meta"><span>${ico.cal}Erstellt: ${deDate(r.datum)}</span>${r.faellig?`<span>${ico.clock}${T.dateL}: ${deDate(r.faellig)}</span>`:""}${st==="bezahlt"&&r.bezahltAm?`<span style="color:var(--green)">${ico.check}bezahlt ${deDate(r.bezahltAm)}</span>`:""}</div>
-        <button class="btn soft wide" id="dView">${ico.preview} Blatt ansehen</button>
+        ${NEU() ? `<div class="pillrow"><button class="btn soft" id="dView">${ico.preview} Blatt ansehen</button><button class="btn" id="dPdfTop">${ico.share} PDF teilen</button></div>`
+          : `<button class="btn soft wide" id="dView">${ico.preview} Blatt ansehen</button>`}
         ${st==="entwurf"?`<div class="btnrow"><button class="btn" id="dEdit" style="flex:1">Bearbeiten</button></div>`:""}
         ${t!=="rechnung" && st!=="entwurf" && st!=="abgelehnt"?`<button class="btn accent wide" id="dToInv">${ico.doc} In Rechnung umwandeln</button>`:""}
       </div>
@@ -1514,6 +1542,7 @@ function kundeMenu(id, row){
     const dk=$("#dKunde"); if(dk) dk.onclick=()=>openKunde(k.id);
     const dj=$("#dJob"); if(dj) dj.onclick=()=>openJobDetail(job.id);
     $("#dPdf").onclick=()=>savePdf(r);
+    const pTop=$("#dPdfTop"); if(pTop) pTop.onclick=()=>savePdf(r);
     const cp=$("#dCopy"); if(cp) cp.onclick=()=>{ const ta=$("#dMail"); const done=()=>toast("Text kopiert"); try{ navigator.clipboard.writeText(ta.value).then(done,()=>{ ta.focus(); ta.select(); toast("Text markiert – jetzt kopieren"); }); }catch(e){ ta.focus(); ta.select(); toast("Text markiert – jetzt kopieren"); } };
     const sn=$("#dSent"); if(sn) sn.onclick=()=>setDocStatus(r,"versendet");
     const ds=$("#dStatus"); if(ds) ds.onclick=()=>{
@@ -1826,13 +1855,17 @@ function kundeMenu(id, row){
     const fld=(i,l,v,ph="",type="text")=>`<div class="field"><label for="${i}">${l}</label><input id="${i}" type="${type}" placeholder="${ph}" value="${esc(v)}"></div>`;
     openSheet(k?"Kunde":"Neuer Kunde", `
       <div class="group"><span class="glabel">Kontakt</span><div class="box">${fld("kName","Name",k?.name,"Vor- und Nachname")}${fld("kFirma","Firma",k?.firma,"optional")}${fld("kTel","Telefon",k?.tel,"optional","tel")}${fld("kMail","E-Mail",k?.mail,"optional","email")}${fld("kNr","Kunden-Nr.",k?.nr||"",k?kundenNr(k):nextKundenNr())}</div></div>
-      <div class="group"><span class="glabel">Adresse (für die Rechnung)</span><div class="box">${fld("kStr","Straße, Nr.",k?.strasse,"optional")}<div class="two">${fld("kPlz","PLZ",k?.plz,"")}${fld("kOrt","Ort",k?.ort,"")}</div>${fld("kLand","Land",k?.land,"optional, z. B. Deutschland")}</div></div>
+      <div class="group"><span class="glabel glrow">Adresse (für die Rechnung)<button type="button" class="mapbtn" id="kMap" aria-label="Adresse in Karten öffnen"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.2 7 13 7 13s7-7.8 7-13a7 7 0 0 0-7-7Zm0 9.6a2.6 2.6 0 1 1 0-5.2 2.6 2.6 0 0 1 0 5.2Z"/></svg><span>Karte</span></button></span><div class="box">${fld("kStr","Straße, Nr.",k?.strasse,"optional")}<div class="two">${fld("kPlz","PLZ",k?.plz,"")}${fld("kOrt","Ort",k?.ort,"")}</div>${fld("kLand","Land",k?.land,"optional, z. B. Deutschland")}</div></div>
       ${jobs.length?`<div class="group"><span class="glabel">Aufträge</span><div class="lgroup">${jobs.map(jobCard).join("")}</div></div>`:""}
       ${docs.length?`<div class="group"><span class="glabel">Rechnungen &amp; Angebote</span><div class="lgroup">${docs.map(r=>docCard(r,true)).join("")}</div></div>`:""}
       ${k?`<button class="btn danger" id="delK">Kunde löschen</button><div id="delConfirm"></div>`:""}`, () => {
         const name=val("kName"); if(!name){ toast("Bitte einen Namen eintragen"); $("#kName").focus(); return false; }
         save("kunden",{...(k||{id:uid(),created:today()}), nr:val("kNr")||(k?kundenNr(k):nextKundenNr()), name, firma:val("kFirma"), tel:val("kTel"), mail:val("kMail"), strasse:val("kStr"), plz:val("kPlz"), ort:val("kOrt"), land:val("kLand")}); toast(k?"Kunde gespeichert":"Kunde angelegt"); });
     $$("#sBody [data-job]").forEach(b=>b.onclick=()=>openJobDetail(b.dataset.job));
+    $("#kMap").onclick=()=>{ const a=[val("kStr"), [val("kPlz"),val("kOrt")].filter(Boolean).join(" "), val("kLand")].filter(Boolean).join(", ");
+      if(!a){ toast("Bitte zuerst eine Adresse eintragen"); $("#kStr").focus(); return; }
+      const apple=/iPhone|iPad|Macintosh/.test(navigator.userAgent);
+      window.open(apple ? "https://maps.apple.com/?q="+encodeURIComponent(a) : "https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(a), "_blank", "noopener"); };
     $$("#sBody [data-doc]").forEach(b=>b.onclick=()=>openDoc(b.dataset.doc));
     const d=$("#delK"); if(d) d.onclick=()=>confirmBox(`${esc(k.name)} löschen?${jobs.length?` ${jobs.length} Auftrag/Aufträge bleiben ohne Kunde.`:""}`, ()=>{ remove("kunden",k.id); closeSheet(); toast("Kunde gelöscht"); });
   }
@@ -4713,7 +4746,7 @@ function kundeMenu(id, row){
 
   /* ---------- start ---------- */
   document.addEventListener("touchstart", ()=>{}, {passive:true});
-  applyTheme(); lsLoad(); render(); connectDb(); authBoot();
+  applyTheme(); applyStyle(); lsLoad(); render(); connectDb(); authBoot();
   // first visit: show the short tour for Aufträge once
   setTimeout(()=>{ let seen=false; try{ seen=!!localStorage.getItem("rm-tour-home"); }catch(e){} if(!seen && UI.view==="home" && $("#sheet").hidden && !$("#auth:not([hidden])")) startTour("home"); }, 900);
 }
