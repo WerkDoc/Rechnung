@@ -1436,3 +1436,195 @@ body{overscroll-behavior-y:none;touch-action:manipulation}
 .swpay.armed .payact button{transform:scale(1.12)}
 .swpay.swiping > .lrow{transition:none!important}
 @media (prefers-reduced-motion: reduce){.payact,.swpay > .lrow{transition:none!important}}
+
+/* =====================================================================
+   v72 · Design „Plastisch“ (Neumorph) – Standard, umschaltbar in
+   Einstellungen → Erscheinungsbild → Design. Licht von oben links:
+   heller Schatten oben links, dunkler unten rechts; gedrückt = nach innen.
+   Farben: WerkDoc-Blau → Logo-Navy. Schrift: Montserrat (nur App-Oberfläche,
+   die Rechnungs-PDF bleibt unverändert bei Open Sans).
+   ===================================================================== */
+@font-face{font-family:"Montserrat RM";src:url("./assets/fonts/Montserrat-Variable.woff") format("woff");font-weight:100 900;font-display:swap}
+/* Teile, die es nur im Design „Plastisch“ gibt */
+.qstep{display:contents} .qm{display:none} .lk{display:none}
+.glrow{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.mapbtn{display:inline-flex;align-items:center;gap:5px;border:0;border-radius:999px;background:var(--blue-soft);color:var(--blue);padding:5px 11px;font:inherit;font-size:12.5px;font-weight:700;letter-spacing:0;text-transform:none}
+.mapbtn svg{width:14px;height:14px}
+.pillrow{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.pillrow .btn{padding:13px 10px;font-size:15px;white-space:nowrap}
+
+:root[data-style="neu"]{
+  --bg:#e6eaf0; --surface:#e6eaf0; --surface-2:#dfe4eb; --line:rgba(132,148,176,.22);
+  --nh:#ffffff; --ns:rgba(140,155,183,.55);
+  --raise:-6px -6px 14px var(--nh),6px 6px 14px var(--ns);
+  --raise-s:-3px -3px 8px var(--nh),3px 3px 8px var(--ns);
+  --inset:inset 3px 3px 7px var(--ns),inset -3px -3px 7px var(--nh);
+  --inset-s:inset 2px 2px 5px var(--ns),inset -2px -2px 5px var(--nh);
+  --grad:linear-gradient(135deg,#3b82f6 0%,#2156d6 48%,#14284a 100%);
+  --grad-sh:0 6px 14px rgba(20,48,110,.32),-3px -3px 8px var(--nh);
+  --grad-in:inset 3px 3px 7px rgba(0,0,0,.28),inset -2px -2px 6px rgba(255,255,255,.18);
+  --grad-red:linear-gradient(135deg,#ff6b70 0%,#d7262e 100%);
+  --ring-track:rgba(132,148,176,.22);
+  --glass-top:rgba(230,234,240,.86); --tabbar:#e6eaf0; --card-sh:var(--raise); --fill:transparent;
+  --f-ui:"Montserrat RM",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  --f-body:var(--f-ui); --f-display:var(--f-ui);
+}
+@media (prefers-color-scheme: dark){:root[data-style="neu"]:not([data-theme="light"]){
+  --bg:#1c222b; --surface:#1c222b; --surface-2:#222a35; --line:rgba(255,255,255,.06);
+  --nh:rgba(255,255,255,.045); --ns:rgba(0,0,0,.55);
+  --grad:linear-gradient(135deg,#4f8bff 0%,#2563eb 50%,#1a3466 100%);
+  --grad-sh:0 6px 16px rgba(0,0,0,.45),-3px -3px 8px var(--nh);
+  --ring-track:rgba(255,255,255,.07);
+  --glass-top:rgba(28,34,43,.86); --tabbar:#1c222b;
+}}
+:root[data-style="neu"][data-theme="dark"]{
+  --bg:#1c222b; --surface:#1c222b; --surface-2:#222a35; --line:rgba(255,255,255,.06);
+  --nh:rgba(255,255,255,.045); --ns:rgba(0,0,0,.55);
+  --grad:linear-gradient(135deg,#4f8bff 0%,#2563eb 50%,#1a3466 100%);
+  --grad-sh:0 6px 16px rgba(0,0,0,.45),-3px -3px 8px var(--nh);
+  --ring-track:rgba(255,255,255,.07);
+  --glass-top:rgba(28,34,43,.86); --tabbar:#1c222b;
+}
+
+:root[data-style="neu"] .hmark,:root[data-style="neu"] .au-brand h1{font-family:"Bricolage Grotesque","Avenir Next",system-ui,sans-serif}
+:root[data-style="neu"] .lhead h1{font-weight:800;letter-spacing:-.03em}
+:root[data-style="neu"] .sech{font-weight:700}
+
+/* Flächen: aus dem Hintergrund geformt */
+:root[data-style="neu"] :is(.card,.box,.tri,.stat,.lgroup,.kpi,.qa,.grid){background:var(--surface);border-color:transparent;box-shadow:var(--raise);border-radius:20px}
+:root[data-style="neu"] :is(.kpi,.qa,button.card){transition:transform .16s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease}
+:root[data-style="neu"] :is(.kpi,.qa,button.card,.revcard):active{transform:scale(.985);box-shadow:var(--inset)}
+:root[data-style="neu"] .accbody :is(.card,.box){background:var(--surface);box-shadow:var(--inset-s)}
+:root[data-style="neu"] .hint{background:var(--surface);border:0;box-shadow:var(--inset-s)}
+:root[data-style="neu"] .tag{background:var(--surface);border:0;box-shadow:var(--inset-s);display:inline-flex;align-items:center;gap:4px}
+:root[data-style="neu"] .lgroup .lrow:active{background:transparent;box-shadow:var(--inset-s)}
+:root[data-style="neu"] .kpi.warn{border:0;box-shadow:var(--raise),inset 0 0 0 1.5px var(--red-line)}
+
+/* Symbole: runde Tasten (Schnellaktionen) und Mulden (Kennzahlen) */
+:root[data-style="neu"] .qa .bdg{background:var(--surface);border-radius:50%;box-shadow:var(--raise-s)}
+:root[data-style="neu"] .kpi .bdg{background:var(--surface);border-radius:50%;box-shadow:var(--inset-s)}
+:root[data-style="neu"] .lrow .bdg{border-radius:50%}
+:root[data-style="neu"] .bdg.ini{background:var(--grad);color:#fff;box-shadow:var(--raise-s)}
+
+/* Kopfleiste */
+:root[data-style="neu"] .iconbtn{background:var(--surface);border:0;box-shadow:var(--raise-s);color:var(--fg)}
+:root[data-style="neu"] .iconbtn:active{box-shadow:var(--inset-s);transform:none}
+:root[data-style="neu"] .iconbtn.add{background:var(--grad);color:#fff;box-shadow:var(--grad-sh)}
+:root[data-style="neu"] .iconbtn.add:active{box-shadow:var(--grad-in)}
+:root[data-style="neu"] .iconbtn[aria-pressed="true"],:root[data-style="neu"] .iconbtn[aria-expanded="true"]{background:var(--surface);color:var(--blue);box-shadow:var(--inset-s)}
+
+/* Tasten: Pillen mit Verlauf, neutrale Tasten erhaben */
+:root[data-style="neu"] .btn{background:var(--grad)!important;color:#fff!important;border:0!important;box-shadow:var(--grad-sh)}
+:root[data-style="neu"] :is(.btn.ghost,.btn.grey,.btn.soft){background:var(--surface)!important;color:var(--fg)!important;box-shadow:var(--raise-s)}
+:root[data-style="neu"] .btn.soft{color:var(--blue)!important}
+:root[data-style="neu"] .btn.danger{background:var(--grad-red)!important;color:#fff!important;box-shadow:0 6px 14px rgba(215,38,46,.28),-3px -3px 8px var(--nh)}
+:root[data-style="neu"] .btn.wa{background:linear-gradient(135deg,#2fd273,#178f47)!important}
+:root[data-style="neu"] .btn:not(:disabled):active{box-shadow:var(--grad-in);transform:scale(.97)}
+:root[data-style="neu"] :is(.btn.ghost,.btn.grey,.btn.soft):not(:disabled):active{box-shadow:var(--inset-s)}
+:root[data-style="neu"] .hbtn{background:var(--surface);border:0;box-shadow:var(--raise-s);color:var(--blue)}
+:root[data-style="neu"] .hbtn.go{background:var(--grad);color:#fff;box-shadow:var(--grad-sh)}
+:root[data-style="neu"] .hbtn:active{box-shadow:var(--inset-s)}
+:root[data-style="neu"] .hbtn.go:active{box-shadow:var(--grad-in)}
+
+/* Filter-Chips und Segmente */
+:root[data-style="neu"] .chips{padding:6px 6px 10px;margin:-6px -6px -6px}
+:root[data-style="neu"] .chip{background:var(--surface);border:0;box-shadow:var(--raise-s);color:var(--muted)}
+:root[data-style="neu"] .chip:active{box-shadow:var(--inset-s)}
+:root[data-style="neu"] .chip[aria-pressed="true"]{background:var(--grad);color:#fff;box-shadow:var(--grad-sh)}
+:root[data-style="neu"] .seg{background:var(--surface);box-shadow:var(--inset);border-radius:14px;padding:4px;gap:4px}
+:root[data-style="neu"] .seg button{color:var(--muted)}
+:root[data-style="neu"] .seg button[aria-pressed="true"]{background:var(--surface);color:var(--blue);box-shadow:var(--raise-s)}
+:root[data-style="neu"] .seg-thumb{top:4px;bottom:4px;border-radius:10px;background:var(--surface);box-shadow:var(--raise-s)}
+:root[data-style="neu"] .steps .step{border-color:transparent;box-shadow:var(--raise-s)}
+:root[data-style="neu"] .steps .step:not([aria-pressed="true"]){background:var(--surface)}
+:root[data-style="neu"] .steps .step[aria-pressed="true"]{box-shadow:var(--inset-s)}
+
+/* Suche und Eingaben: eingedrückt */
+:root[data-style="neu"] .search{background:var(--surface);box-shadow:var(--inset);border-radius:999px;padding:0 16px}
+:root[data-style="neu"] .pcard{background:var(--surface);border:0;box-shadow:var(--raise-s)}
+:root[data-style="neu"] .pcard :is(input,select,textarea){background:var(--surface);border:0;box-shadow:var(--inset-s);border-radius:10px}
+:root[data-style="neu"] textarea.mailtext{background:var(--surface);border:0;box-shadow:var(--inset-s)}
+
+/* Menge: Plus/Minus wie CH+/CH− */
+:root[data-style="neu"] .prow2{grid-template-columns:108px minmax(0,1fr) minmax(0,1fr)}
+:root[data-style="neu"] .prow2 > label{white-space:nowrap;font-size:12px}
+:root[data-style="neu"] .prow2 > label > :is(span.pplbl){overflow:hidden;text-overflow:ellipsis}
+:root[data-style="neu"] .qstep{display:flex;align-items:center;gap:4px}
+:root[data-style="neu"] .qstep .pm{flex:1;min-width:0;text-align:center;padding:9px 2px}
+:root[data-style="neu"] .qm{display:grid;place-items:center;flex:none;width:28px;height:28px;padding:0;border:0;border-radius:50%;background:var(--surface);box-shadow:var(--raise-s);color:var(--blue);font-size:19px;font-weight:700;line-height:1}
+:root[data-style="neu"] .qm[data-qd="1"]{background:var(--grad);color:#fff;box-shadow:var(--grad-sh)}
+:root[data-style="neu"] .qm:active{box-shadow:var(--inset-s)}
+:root[data-style="neu"] .qm[data-qd="1"]:active{box-shadow:var(--grad-in)}
+
+/* Schalter: eingedrückte Rille, Knopf mit Verlauf; eingeschaltet Rille in Blau */
+:root[data-style="neu"] .toggle{background:var(--surface);box-shadow:var(--inset)}
+:root[data-style="neu"] .toggle::after{background:var(--grad);box-shadow:2px 2px 5px var(--ns)}
+:root[data-style="neu"] .toggle:checked{background:var(--grad);box-shadow:inset 2px 2px 5px rgba(0,0,0,.28)}
+:root[data-style="neu"] .toggle:checked::after{background:#fff}
+
+/* Tab-Leiste: erhaben, der aktive Reiter sitzt in einer Mulde */
+:root[data-style="neu"] .tabs{background:var(--tabbar);border:0;box-shadow:var(--raise)}
+:root[data-style="neu"] .pill-glass{background:var(--surface);box-shadow:var(--inset-s)}
+:root[data-style="neu"] .pill-glass::after,:root[data-style="neu"] .tabs.grow .pill-glass::before{display:none}
+:root[data-style="neu"] .tab{color:var(--faint)}
+:root[data-style="neu"] .tab[aria-current="page"]{color:var(--blue)}
+
+/* Blätter */
+:root[data-style="neu"] .sheet-h{border-bottom-color:transparent}
+:root[data-style="neu"] .sheet-f{background:var(--bg)}
+:root[data-style="neu"] .selbar{background:var(--surface);border:0;box-shadow:var(--raise)}
+
+/* Auswahlmenü (Halten, Status ändern …): dunkel wie „Select“ in der Vorlage */
+:root[data-style="neu"] .picker{background:#141b2b;color:#eef3fa;box-shadow:0 -10px 40px rgba(10,20,40,.35)}
+:root[data-style="neu"] .picker h3{color:#fff}
+:root[data-style="neu"] .picker::before{background:rgba(255,255,255,.22)}
+:root[data-style="neu"] .picker .opt{background:rgba(255,255,255,.05);border:0;box-shadow:none;color:#eef3fa;border-radius:16px}
+:root[data-style="neu"] .picker .opt small{color:rgba(238,243,250,.6)}
+:root[data-style="neu"] .picker .opt:active{background:var(--grad);transform:scale(.985)}
+:root[data-style="neu"] .picker .opt.danger > span{color:#ff8a8f}
+:root[data-style="neu"] .picker .opt.danger:active{background:var(--grad-red)}
+:root[data-style="neu"] .picker .opt.danger:active > span{color:#fff}
+:root[data-style="neu"] .picker #pkClose{background:rgba(255,255,255,.1)!important;color:#fff!important;box-shadow:none}
+
+/* Anmeldung */
+:root[data-style="neu"] .au-slot{background:var(--surface);box-shadow:var(--raise)}
+:root[data-style="neu"] .au-card{background:var(--surface);border:0;box-shadow:none}
+:root[data-style="neu"] .au-slot:not(:has(.au-card)) {box-shadow:none;background:none}
+:root[data-style="neu"] .au-f input{background:var(--surface);border:0;box-shadow:var(--inset);border-radius:16px}
+:root[data-style="neu"] .au-f input:focus{background:var(--surface);box-shadow:var(--inset),0 0 0 3px color-mix(in srgb,var(--blue) 28%,transparent)}
+:root[data-style="neu"] .au-btn{background:var(--grad);color:#fff;border-radius:999px;box-shadow:var(--grad-sh)}
+:root[data-style="neu"] .au-btn:active{box-shadow:var(--grad-in)}
+:root[data-style="neu"] .au-btn2{background:var(--surface);border:0;border-radius:999px;color:var(--blue);box-shadow:var(--raise-s)}
+
+/* Übersicht: Umsatz-Karte mit Ring (Anteil bezahlt) */
+.revcard{display:flex;align-items:center;gap:18px;width:100%;padding:18px 18px 18px 16px;border:0;border-radius:24px;background:var(--surface);box-shadow:var(--raise);color:var(--fg);text-align:left;font:inherit;transition:transform .16s cubic-bezier(.2,.8,.2,1),box-shadow .2s ease}
+.revcard .ring{position:relative;width:116px;height:116px;flex:none;border-radius:50%;box-shadow:var(--inset);display:flex;flex-direction:column;align-items:center;justify-content:center}
+.revcard .ring svg{position:absolute;inset:9px;width:calc(100% - 18px);height:calc(100% - 18px);transform:rotate(-90deg)}
+.revcard .ring circle{fill:none;stroke-width:9}
+.revcard .rtrack{stroke:var(--ring-track)}
+.revcard .rval{stroke:url(#rgGrad);stroke-linecap:round;animation:ringIn 1s cubic-bezier(.3,.9,.3,1) both}
+@keyframes ringIn{from{stroke-dasharray:0 999}}
+.revcard .ring b{font-size:21px;font-weight:800;letter-spacing:-.02em;line-height:1.05}
+.revcard .ring small{font-size:11px;font-weight:600;color:var(--muted)}
+.revcard .revtxt{display:flex;flex-direction:column;gap:2px;min-width:0}
+.revcard .revtxt b{font-size:30px;font-weight:800;letter-spacing:-.03em;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.revcard .revtxt > span{font-weight:650;font-size:14px;margin-bottom:6px}
+.revcard .revtxt small{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12.5px;font-weight:600;white-space:nowrap}
+.revcard .dot{width:9px;height:9px;border-radius:50%;flex:none}
+.revcard .dot.g{background:var(--grad)}
+.revcard .dot.b{background:var(--ring-track);box-shadow:var(--inset-s)}
+.kpis.two{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media (max-width:360px){.revcard{gap:12px;padding:14px}.revcard .ring{width:96px;height:96px}.revcard .revtxt b{font-size:24px}}
+
+/* Gesperrte Rechnungen (mit Nummer, nicht löschbar): kleines Schloss */
+:root[data-style="neu"] .lk{display:inline-flex;vertical-align:-2px;margin-right:4px;color:var(--faint)}
+:root[data-style="neu"] .lk svg{width:13px;height:13px}
+:root[data-style="neu"] .tag .lk{margin:0;color:var(--muted)}
+:root[data-style="neu"] .mapbtn{background:var(--surface);box-shadow:var(--raise-s);padding:6px 12px}
+:root[data-style="neu"] .mapbtn svg{color:#d7262e}
+:root[data-style="neu"] .mapbtn:active{box-shadow:var(--inset-s)}
+
+/* weicher Wechsel zwischen „Plastisch“ und „Klassisch“ */
+::view-transition-old(root),::view-transition-new(root){animation-duration:.35s}
+@media (prefers-reduced-motion: reduce){.revcard .rval{animation:none}}
+:root[data-style="neu"] :is(.sec,.card) h4 .btn svg{color:inherit}
