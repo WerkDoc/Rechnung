@@ -1317,7 +1317,7 @@ body:has(.selbar) .toast{bottom:calc(168px + env(safe-area-inset-bottom,0px))}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) :is(.day.pressing,.day.lifted){background:#2c2c2e;box-shadow:0 12px 30px rgba(0,0,0,.6)}}
 
 /* Auswahlfenster: gleitet weich herein, Kacheln heben sich leicht ab */
-.picker.in{animation:pkIn .42s cubic-bezier(.2,.9,.25,1.06) both}
+.picker.in{animation:pkIn .42s cubic-bezier(.2,.9,.25,1.06) backwards} /* backwards statt both: sonst hält die Animation transform fest und das Menü folgt beim Runterwischen nicht dem Finger */
 .picker.in > .opt,.picker.in > #pkClose{animation:pkOpt .38s cubic-bezier(.2,.9,.3,1.1) both;animation-delay:calc(70ms + var(--i,0) * 45ms)}
 .picker.out{animation:pkOut .23s cubic-bezier(.4,0,1,1) both}
 .pscrim:not([hidden]){animation:pkFade .25s ease both}
