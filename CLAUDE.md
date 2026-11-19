@@ -26,6 +26,7 @@ Diese Teile in `src/legacy/app.js` dürfen bei Layout-/Design-Umbauten nicht ver
 - **Anschrift fest im Beleg:** Beim Erstellen (`finish(make)`) werden `empfaenger` (Zeilen) und `kundenNr` in die Rechnung geschrieben. Anzeige/PDF lesen **nie** neu aus dem Kundenstamm (`docParts`, `belegFuerPdf`) – nur Entwürfe und alte Belege ohne `empfaenger` fallen darauf zurück.
 - **GiroCode:** `qrMatrix()` mit `qrcode-generator`; ob er erscheint, entscheidet `belegDaten` (nur offene Rechnungen mit Nummer). Firmenfeld **Kontoinhaber** (`cKInh`).
 - **Garantie-Muster:** Ersatzteil-Positionen bekommen „inkl. Ersatzteil, Einbau & Funktionstest · [Garantie]*“ + IMEI; Garantie aus Teil (`tGar`) → Firma (`cGar`) → `GARANTIE_STANDARD`; Fußnote unter der Tabelle.
+- **Gastmodus (v74):** Flag `wb-guest` → eigener Speicher `repairmobile-werkbank-gast` (`LS_KEY`), `sbClient()` wirft im Gastmodus, `authBoot()` läuft nicht. Gastdaten dürfen nie ins echte Konto (kein „adopt“) – beim Beenden/Registrieren `guestWipe()`.
 - CSS in `src/styles.css`: `@font-face "Open Sans RM"`, `.pdfprev`, `.pcard textarea.pd`.
 
 ## Gemeinsames Rechnungs-Modul (EINE Datei für WerkDoc und Website)

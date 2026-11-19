@@ -131,7 +131,11 @@ export function startApp(){
   const COLLS = ["kunden","auftraege","rechnungen","teile","ausgaben"];
   const S = { firma:{}, kunden:[], auftraege:[], rechnungen:[], teile:[], ausgaben:[] };
   let mode = "local", dbRefs = null;
-  const LS_KEY = "repairmobile-werkbank-v1";
+  // v74 · Gastmodus: App mit Beispieldaten ausprobieren, ohne Konto. Eigener Speicher, nie mit echten Daten vermischt,
+  // keine Verbindung zu Supabase (kein Login, keine Cloud-Nummern, kein Upload).
+  const GUEST = (()=>{ try{ return localStorage.getItem("wb-guest")==="1"; }catch(e){ return false; } })();
+  const LS_GUEST = "repairmobile-werkbank-gast";
+  const LS_KEY = GUEST ? LS_GUEST : "repairmobile-werkbank-v1";
   function lsLoad(){ try{ const raw=localStorage.getItem(LS_KEY); if(raw) Object.assign(S, JSON.parse(raw)); }catch(e){} for(const c of COLLS) if(!Array.isArray(S[c])) S[c]=[]; }
   function lsSave(){ if(mode!=="local") return; try{ localStorage.setItem(LS_KEY, JSON.stringify(S)); }catch(e){} }
   function upsertLocal(coll, obj){ obj._upd=Date.now(); const arr=S[coll]; const i=arr.findIndex(x=>x.id===obj.id); if(i>=0) arr[i]=obj; else arr.push(obj); if(typeof cloudQueue==="function") cloudQueue(coll, obj.id, obj); }
@@ -285,7 +289,7 @@ export function startApp(){
   /* ---------- UI state ---------- */
   const UI = { sel:null, selVis:{kunden:[],teile:[],rechnungen:[]}, view:"home", filter:"offen", q:"", calMonth:today().slice(0,7), calDay:today(), calZoom:"month", docSeg:"rechnungen", docFilter:"alle", ausMonth:today().slice(0,7), csvYear:String(new Date().getFullYear()), csvMonth:"" };
   const titles = {home:"Übersicht", auftraege:"Aufträge", kalender:"Kalender", rechnungen:"Rechnungen", kunden:"Kunden", mehr:"Einstellungen"};
-  const APP_VER="73";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
+  const APP_VER="74";                                   // bei jeder Auslieferung hochzählen – steht unten in den Einstellungen
   const TAB_ORDER=["home","auftraege","kalender","rechnungen","kunden"];   // Einstellungen: Zahnrad oben rechts
   const reducedMotion = () => { try{ return matchMedia("(prefers-reduced-motion: reduce)").matches; }catch(e){ return false; } };
   const EASE_OUT="cubic-bezier(.2,.8,.2,1)", EASE_IN="cubic-bezier(.4,0,1,1)";
@@ -473,7 +477,7 @@ export function startApp(){
     const eur0=v=>new Intl.NumberFormat("de-DE",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(v);
     if(NEU()){
       const pct=umsatz>0?Math.round(Math.min(1,bezahltMon/umsatz)*100):0, C=2*Math.PI*42;
-      return `<button class="revcard" data-go="rechnungen:alle" aria-label="Umsatz im ${monName}: ${eur(umsatz)}, davon ${pct} % bezahlt">
+      return guestBanner()+`<button class="revcard" data-go="rechnungen:alle" aria-label="Umsatz im ${monName}: ${eur(umsatz)}, davon ${pct} % bezahlt">
           <span class="ring"><svg viewBox="0 0 100 100" aria-hidden="true"><defs><linearGradient id="rgGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#3b82f6"/><stop offset="1" stop-color="#14284a"/></linearGradient></defs>
             <circle class="rtrack" cx="50" cy="50" r="42"/><circle class="rval" cx="50" cy="50" r="42" stroke-dasharray="${(C*pct/100).toFixed(1)} ${C.toFixed(1)}"/></svg><b class="num">${pct}%</b><small>bezahlt</small></span>
           <span class="revtxt"><b class="num">${eur0(umsatz)}</b><span>Umsatz im ${monName}</span><small><i class="dot g"></i>${eur0(bezahltMon)} bezahlt</small><small><i class="dot b"></i>${eur0(Math.max(0,umsatz-bezahltMon))} offen</small></span></button>
@@ -483,7 +487,7 @@ export function startApp(){
         </div>
         ${homeRest()}`;
     }
-    return `<div class="kpis">
+    return guestBanner()+`<div class="kpis">
         ${kpi("rechnungen:offen", ueber.length?"red":"blue", ueber.length?LU.alert:LU.doc, offen.length, "Offene Rechnungen", ueber.length?`${ueber.length} überfällig`:eur(offenSum), ueber.length>0)}
         ${kpi("rechnungen:alle", "green", LU.trend, new Intl.NumberFormat("de-DE",{style:"currency",currency:"EUR",maximumFractionDigits:0}).format(umsatz), "Umsatz", `im ${monName}`)}
         ${kpi("auftraege:offen", "indigo", LU.wrench, aktiv, "Offene Aufträge", abh?`${abh} abholbereit`:`${neuMon} neu im Monat`)}
@@ -765,7 +769,7 @@ export function startApp(){
         ${nav("tour","blue",LU.help,"Tour-Hilfe", "Kurze Einführung in die App")}
         ${S.auftraege.length?"":nav("examples","amber",LU.sparkle,"Beispiel-Daten laden","Zum Ausprobieren")}
       </div></div>
-      <p class="syncnote">${mode==="db"?"Gespeichert in Ihrem Konto – privat, auf allen Geräten gleich.":"Gespeichert in diesem Browser."}<br><small style="opacity:.7">WerkDoc · App-Stand ${APP_VER}</small></p>`;
+      <p class="syncnote">${GUEST?"Gastmodus: gespeichert nur auf diesem Gerät, nicht in der Cloud.":mode==="db"?"Gespeichert in Ihrem Konto – privat, auf allen Geräten gleich.":"Gespeichert in diesem Browser."}<br><small style="opacity:.7">WerkDoc · App-Stand ${APP_VER}</small></p>`;
   }
 
   /* ---------- view bindings ---------- */
@@ -864,6 +868,7 @@ export function startApp(){
       if(a==="logout"){ logout(); return; } if(a==="logoutYes"){ logoutNow(); return; } if(a==="logoutNo"){ LOGOUT_ASK=null; render(); return; }
       if(a==="syncNow"){ cloudSyncNow().then(()=>toast(CLOUD.status==="err"?CLOUD.msg:"Synchronisiert")); return; }
       if(a==="login"){ CLOUD.skip=false; showAuth("login"); return; }
+      if(a==="guestReg"){ leaveGuest("register"); return; } if(a==="guestExit"){ leaveGuest("login"); return; } if(a==="guestReset"){ resetGuest(); return; }
       if(a==="newAus") newAusgabe(); if(a==="multiAus") pickMulti(); if(a==="ausExport") ausExportMenu();
       if(a==="csvAus") exportAusCsv(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : ""));
       if(a==="paket") exportPaket(UI.csvYear + (UI.csvMonth ? "-"+UI.csvMonth : ""), true);
@@ -3095,6 +3100,7 @@ function kundeMenu(id, row){
   const CLOUD = { user:null, status:"aus", msg:"", last:"", pushing:false, pulling:false, off:false, skip:false, ready:false };
 
   async function sbClient(){
+    if(GUEST) throw new Error("gast");
     if(sb) return sb;
     if(!sbLoading) sbLoading=(async()=>{
       if(!window.supabase?.createClient) for(const u of SB_CDN){ try{ await withTimeout(loadScript(u), 15000, "Supabase lädt nicht"); }catch(e){} if(window.supabase?.createClient) break; }
@@ -3292,6 +3298,9 @@ function kundeMenu(id, row){
         <button class="au-btn2" type="button" data-av="register">Neue Firma registrieren</button>
         <button class="au-link" type="button" data-av="reset">Passwort vergessen?</button>
         <p class="au-foot">Deine Daten liegen geschützt in deinem Konto und bleiben auch offline auf diesem Gerät nutzbar.</p>
+        <div class="au-or"><span>oder</span></div>
+        <button class="au-btn2 au-guest" type="button" id="auGuest">${LU.sparkle}<span>Als Gast ausprobieren</span></button>
+        <p class="au-foot au-gnote">Mit Beispieldaten und ohne Konto. Alles bleibt nur auf diesem Gerät.</p>
         ${IS_PREVIEW?`<button class="au-link muted" type="button" id="auSkip">Ohne Anmeldung testen (nur diese Vorschau)</button>`:""}</form>`,
       register:`${logo}<form class="au-card" id="auForm" novalidate><h2 id="authTitle">Neue Firma registrieren</h2><p class="au-sub">Lege deinen WerkDoc-Zugang an. Danach bekommst du eine E-Mail zur Bestätigung.</p>
         ${fld("auFirma","Firmenname","text","z. B. RepairMobile","organization")}${fld("auName","Vor- und Nachname","text","","name")}${fld("auMail","E-Mail","email","name@firma.de","email")}${pw("auPw","mindestens 8 Zeichen","Passwort","new-password")}
@@ -3327,6 +3336,7 @@ function kundeMenu(id, row){
     } else fill();
     el.onclick=e=>{ const v=e.target.closest("[data-av]"); if(v){ const m=$("#auMail")?.value; showAuth(v.dataset.av, {mail:m}); return; }
       const s=e.target.closest("[data-pw]"); if(s){ const i=$("#"+s.dataset.pw); i.type=i.type==="password"?"text":"password"; s.textContent=i.type==="password"?"Anzeigen":"Verbergen"; }
+      if(e.target.closest("#auGuest")){ enterGuest(); return; }
       if(e.target.id==="auSkip"){ CLOUD.skip=true; hideAuth(); toast("Vorschau ohne Anmeldung"); } };
     setTimeout(()=>{ const first=$("#auForm input"); if(first && !first.value && matchMedia("(pointer:fine)").matches) first.focus(); }, 200);
   }
@@ -3364,6 +3374,8 @@ function kundeMenu(id, row){
   }
   async function authBoot(){
     const su=storedUser();
+    let after="login"; try{ after=sessionStorage.getItem("wb-after-guest")||"login"; sessionStorage.removeItem("wb-after-guest"); }catch(e){}
+    if(!["login","register"].includes(after)) after="login";
     // Offline mit gespeicherter Sitzung: sofort weiterarbeiten
     if(su && navigator.onLine===false){ onAuthed(su, {offline:true}); }
     try{
@@ -3376,10 +3388,10 @@ function kundeMenu(id, row){
       const { data }=await c.auth.getSession();
       if(/[#&](access_token|type=)/.test(location.hash)) history.replaceState(null, "", location.pathname+location.search);
       if(data.session?.user){ if(AUTH_VIEW!=="newpw") onAuthed(data.session.user); }
-      else if(!CLOUD.user || !su) showAuth("login");
+      else if(!CLOUD.user || !su) showAuth(after);
     }catch(e){
       if(su) onAuthed(su, {offline:true});
-      else showAuth("login", { msg:sbErrMsg(e) });
+      else showAuth(after, { msg:sbErrMsg(e) });
     }
   }
   let LOGOUT_ASK=null;
@@ -3400,6 +3412,12 @@ function kundeMenu(id, row){
     render(); requestAnimationFrame(()=>$("#grpKonto")?.scrollIntoView({block:"center", behavior:"smooth"}));
   }
   function accountGroup(){
+    if(GUEST) return `<div class="group" id="grpKonto"><span class="glabel">Gastmodus</span><div class="card guestcard">
+      <div class="row"><span class="acav guest">${LU.sparkle}</span><span class="acwho"><b>Du bist als Gast unterwegs</b><small>Testdaten nur auf diesem Gerät</small></span></div>
+      <p class="hint" style="margin:0">Im Gastmodus probierst du WerkDoc mit Beispieldaten aus. Nichts davon geht in die Cloud. Mit einem kostenlosen Konto liegen deine Daten sicher in der Cloud und du kannst mehrere Geräte nutzen.</p>
+      <button class="btn wide" data-act="guestReg">Kostenloses Konto erstellen</button>
+      <div class="btnrow"><button class="btn grey" data-act="guestReset">${ico.sync} Testdaten zurücksetzen</button><button class="btn danger" data-act="guestExit">Gastmodus beenden</button></div>
+    </div></div>`;
     if(!CLOUD.user) return `<div class="group" id="grpKonto"><span class="glabel">${CLOUD.skip?"Konto &amp; Cloud":"Daten"}</span><div class="card">${CLOUD.skip?`<span style="color:var(--muted)">Vorschau ohne Anmeldung.</span><div class="btnrow"><button class="btn" data-act="login">Anmelden</button></div>`:`<span style="color:var(--muted)">Alle Daten dieser App auf einen Schlag entfernen.</span>`}
       <button type="button" class="delacct" data-act="delAcct">${ICO_TRASH}<span>Alle Daten löschen</span></button></div></div>`;
     const u=CLOUD.user;
@@ -4744,9 +4762,73 @@ function kundeMenu(id, row){
   for(const ev of ["gesturestart","gesturechange","gestureend"]) document.addEventListener(ev, e=>e.preventDefault(), {passive:false});
   document.addEventListener("touchmove", e=>{ if(e.touches.length>1 && e.cancelable) e.preventDefault(); }, {passive:false});
 
+  /* ===================== v74: Gastmodus ===================== */
+  function guestBanner(){
+    if(!GUEST) return "";
+    return `<button type="button" class="guestbar" data-act="guestReg"><span class="gbic">${LU.sparkle}</span><span class="gbtx"><b>Gastmodus</b><small>Testdaten nur auf diesem Gerät</small><em>Gefällt's dir? Jetzt kostenlos registrieren</em></span>${CHEV}</button>`;
+  }
+  function enterGuest(){
+    try{ localStorage.removeItem(LS_GUEST); localStorage.setItem("wb-guest","1"); localStorage.removeItem("rm-recent"); }catch(e){ toast("Gastmodus geht in diesem Browser nicht (Speicher gesperrt)"); return; }
+    document.documentElement.classList.add("guest-enter");
+    setTimeout(()=>location.reload(), reducedMotion()?0:380);
+  }
+  async function guestWipe(){
+    // Belegbilder und Auftragsfotos der Gastdaten entfernen, dann den Gast-Speicher
+    const ids=[...S.ausgaben.map(x=>x.id), ...S.auftraege.flatMap(a=>(a.fotos||[]).map(f=>f.id))];
+    for(const id of ids){ try{ BILD.cache.delete(id); await BILD.tx("readwrite", st=>st.delete(id)); }catch(e){} }
+    try{ localStorage.removeItem(LS_GUEST); localStorage.removeItem("rm-recent"); }catch(e){}
+  }
+  function leaveGuest(target){
+    const reg = target==="register";
+    openPicker(reg ? "Jetzt registrieren?" : "Gastmodus beenden?", [
+      { label: reg ? "Weiter zur Registrierung" : "Gastmodus beenden", sub:"Die Testdaten werden von diesem Gerät gelöscht. Dein richtiges Konto startet leer.", cls: reg ? "" : "danger" }
+    ], async()=>{
+      await guestWipe();
+      try{ localStorage.removeItem("wb-guest"); sessionStorage.setItem("wb-after-guest", reg ? "register" : "login"); }catch(e){}
+      location.reload();
+    });
+  }
+  function resetGuest(){
+    openPicker("Testdaten zurücksetzen?", [{ label:"Zurücksetzen", sub:"Alle Änderungen im Gastmodus gehen verloren, die Beispieldaten kommen frisch dazu.", cls:"danger" }], async()=>{
+      await guestWipe(); for(const c of COLLS) S[c]=[]; S.firma={}; UNDO.length=0; guestSeed(); render(); toast("Testdaten zurückgesetzt");
+    });
+  }
+  function guestSeed(){
+    const d=today(), mk=(o)=>({ id:uid(), created:nowStamp(), verlauf:[], ...o });
+    S.firma={ name:"Muster-Werkstatt", inhaber:"Max Mustermann", ansprechpartner:"Max Mustermann", strasse:"Hauptstraße 1", plz:"12345", ort:"Musterstadt",
+      tel:"0151 00000000", mail:"info@muster-werkstatt.de", kleinunternehmer:true, ziel:14, pauschale:39, iban:"DE02 1203 0000 0000 2020 51", bank:"Musterbank", kontoinhaber:"Max Mustermann" };
+    const K=[["Lena Hofmann","Gartenstraße 12","12345","Musterstadt","0151 2345678","lena@example.com"],
+             ["Mehmet Yılmaz","Bahnhofstraße 3","12345","Musterstadt","0160 9876543","mehmet@example.com"],
+             ["Sabine Krüger","Rosenweg 8","12346","Nachbarort","0171 5550123","sabine@example.com"]]
+      .map(([name,strasse,plz,ort,tel,mail],i)=>({ id:uid(), nr:String(1001+i), name, strasse, plz, ort, tel, mail, created:d }));
+    S.kunden=K;
+    const T=[{ id:uid(), bez:"Display iPhone 13 (OLED)", artnr:"DSP-13", preis:149, ek:62, bestand:3, lager:"Schublade 2", einheit:"Stk." },
+             { id:uid(), bez:"Akku Galaxy S22", artnr:"AKK-S22", preis:69, ek:21, bestand:5, lager:"Schublade 4", einheit:"Stk." },
+             { id:uid(), bez:"Panzerglas universal", artnr:"PG-UNI", preis:15, ek:3, bestand:20, lager:"Theke", einheit:"Stk." }];
+    S.teile=T;
+    const P=(bez,preis,teil)=>({ bez, menge:1, einheit:teil?"Stk.":"psch.", preis, ...(teil?{teilId:teil.id}:{}) });
+    S.auftraege=[
+      mk({ nr:"1001", geraet:"iPhone 14 – Display gesprungen", problem:"Display gesprungen, Touch reagiert unten nicht.", imei:"35 291611 482736 4", kundeId:K[2].id, status:"reparatur", termin:d+"T10:00", erledigt:"", positionen:[P("Display iPhone 13 (OLED) (DSP-13)",149,T[0]), P("Arbeitszeit / Reparatur",39)] }),
+      mk({ nr:"1002", geraet:"Galaxy S22 – Akkutausch", problem:"Akku hält keinen halben Tag.", kundeId:K[1].id, status:"fertig", termin:addDays(d,1)+"T14:30", erledigt:d, positionen:[P("Akku Galaxy S22 (AKK-S22)",69,T[1])] }),
+      mk({ nr:"1003", geraet:"iPad Air – Ladebuchse", problem:"Lädt nur, wenn das Kabel schräg steckt.", kundeId:K[0].id, status:"angenommen", termin:addDays(d,2)+"T09:00", erledigt:"", positionen:[] })];
+    const y=new Date().getFullYear(), N=(k,n)=>`${k}-${String(n).padStart(3,"0")}/${y}`;
+    const doc=(o)=>{ const k=S.kunden.find(x=>x.id===o.kundeId); return mk({ typ:"rechnung", status:"offen", ku:true, mwst:0, brutto:true, rabatt:0, leistung:o.datum, geraet:"", imei:"",
+      faellig:addDays(o.datum,14), notiz:"", empfaenger:empfaengerZeilen(k), kundenNr:kundenNr(k), ...o }); };
+    S.rechnungen=[
+      doc({ nr:N("RE",3), kundeId:K[0].id, datum:d, geraet:"iPhone 13 – Display", positionen:[P("Display iPhone 13 (OLED) (DSP-13)",149,T[0]), P("Panzerglas universal (PG-UNI)",15,T[2])] }),
+      doc({ nr:N("RE",2), kundeId:K[1].id, datum:addDays(d,-3), status:"bezahlt", bezahltAm:addDays(d,-1), geraet:"Galaxy S22 – Akku", positionen:[P("Akku Galaxy S22 (AKK-S22)",69,T[1]), P("Arbeitszeit / Reparatur",39)] }),
+      doc({ nr:N("RE",1), kundeId:K[2].id, datum:addDays(d,-24), status:"versendet", geraet:"Pixel 7 – Backcover", positionen:[P("Backcover Pixel 7",59), P("Arbeitszeit / Reparatur",39)] }),
+      doc({ nr:"", status:"entwurf", kundeId:K[0].id, datum:d, empfaenger:undefined, kundenNr:undefined, positionen:[P("Reinigung AirPods Pro",29)] }),
+      doc({ typ:"angebot", nr:N("AN",1), kundeId:K[1].id, datum:addDays(d,-1), faellig:addDays(d,29), positionen:[P("MacBook Air – Tastatur tauschen",219)] })];
+    S.ausgaben=[];
+    lsSave();
+  }
+
   /* ---------- start ---------- */
   document.addEventListener("touchstart", ()=>{}, {passive:true});
-  applyTheme(); applyStyle(); lsLoad(); render(); connectDb(); authBoot();
+  applyTheme(); applyStyle(); lsLoad();
+  if(GUEST){ if(!localHasData()) guestSeed(); CLOUD.skip=true; render(); hideSplash(); }
+  else { render(); connectDb(); authBoot(); }
   // first visit: show the short tour for Aufträge once
   setTimeout(()=>{ let seen=false; try{ seen=!!localStorage.getItem("rm-tour-home"); }catch(e){} if(!seen && UI.view==="home" && $("#sheet").hidden && !$("#auth:not([hidden])")) startTour("home"); }, 900);
 }
